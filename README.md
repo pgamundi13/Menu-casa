@@ -1,92 +1,74 @@
 # Menú de casa
 
-Planificador semanal de comidas y cenas con biblioteca de recetas y lista de la compra automática, agrupada por secciones del súper.
+Planificador setmanal de dinars i sopars amb receptari compartit i llista de la compra automàtica, ordenada per seccions del súper.
 
-PWA instalable, funciona sin conexión y guarda todo en el dispositivo. La sincronización con Google Sheets es opcional.
-
----
-
-## 1. Subirlo a GitHub Pages
-
-1. Crea un repositorio nuevo, por ejemplo `Menu-casa`.
-2. Sube estos archivos **en la raíz** del repositorio (no dentro de una carpeta):
-
-```
-index.html
-styles.css
-app.js
-manifest.json
-sw.js
-icons/
-  icon-192.png
-  icon-512.png
-  icon-maskable-512.png
-  apple-touch-icon.png
-```
-
-3. En el repo: **Settings ▸ Pages ▸ Source: Deploy from a branch**, rama `main`, carpeta `/ (root)`. Guarda.
-4. En un par de minutos estará en `https://pgamundi13.github.io/Menu-casa/`.
-5. Ábrelo en el móvil y añádelo a la pantalla de inicio para que se instale como app.
-
-> Los archivos `supabase.sql` y `README.md` puedes subirlos también: no molestan.
-
-**Al actualizar archivos**, sube el cambio y además incrementa la versión de la caché en `sw.js` (`menu-casa-v1` → `menu-casa-v2`). Si no, el móvil seguirá sirviendo la versión antigua.
+PWA instal·lable, en català. Les dades viuen a Supabase: **tots els mòbils de casa veuen el mateix i els canvis arriben a l'instant**.
 
 ---
 
-## 2. Sincronizar con Supabase (opcional)
+## 1. Preparar la base de dades
 
-Sin esto la app funciona perfectamente, pero cada móvil tiene sus propios datos. Con esto, todos los móviles de casa comparten el mismo menú.
+Supabase ▸ **SQL Editor** ▸ **New query** ▸ enganxa `supabase.sql` sencer ▸ **Run**.
 
-1. Entra en [supabase.com](https://supabase.com) ▸ **New project**. Ponle nombre (`menu-de-casa`), una contraseña de base de datos y región **West EU (Ireland)** o **Central EU (Frankfurt)**. Tarda un par de minutos en levantarse.
-2. En el menú lateral: **SQL Editor** ▸ **New query**. Pega el contenido de `supabase.sql` y pulsa **Run**. Debe decir *Success*.
-3. Menú lateral: **Project Settings ▸ API Keys**. Necesitas dos cosas:
-   - **Project URL** → `https://xxxxxxxx.supabase.co` (está en *Project Settings ▸ Data API*)
-   - **Publishable key** → empieza por `sb_publishable_…`
+Crea quatre taules (`recetas`, `menu`, `extras`, `marcados`), els dóna permís de lectura i escriptura, activa Realtime i posa una recepta de prova.
 
-   Si tu proyecto es antiguo verás **anon public** en su lugar, una cadena que empieza por `eyJ…`. Cualquiera de las dos vale: la app detecta el formato sola y envía las cabeceras que toquen.
+**Es pot executar tantes vegades com calgui.** No esborra receptes ni duplica la recepta de prova, i no falla si ja ho havies executat abans.
 
-   ⚠️ **Nunca uses la clave `secret` ni `service_role`.** Esas se saltan todas las protecciones y no deben salir de un servidor.
+Si dóna un error de sintaxi, l'enganxada s'ha embolicat: buida l'editor del tot (Ctrl+A i esborra), torna a copiar el fitxer sencer i prova-ho un altre cop. Si continua fallant, executa els blocs 1, 2, 3, 4 i 5 un per un: estan separats i numerats dins del fitxer.
 
-4. Abre la app ▸ **Ajustes** (arriba a la derecha) y rellena:
-   - URL del proyecto
-   - Clave publishable
-   - Código de casa: la app genera uno al azar. **Trátalo como una contraseña.**
-5. Pulsa **Enviar**. El punto de la barra superior se pone verde.
+> Els noms de les columnes són en castellà per dins. No es veuen enlloc de l'app i canviar-los voldria dir tornar a començar la base de dades.
 
-### Añadir otro móvil
+## 2. Pujar-ho a GitHub Pages
 
-En el móvil ya configurado: **Ajustes ▸ Copiar enlace para otro móvil**. Manda ese enlace por WhatsApp; al abrirlo desde el otro móvil, la conexión se configura sola. Después, **Ajustes ▸ Traer**.
+A l'arrel del repositori: `index.html`, `app.js`, `manifest.json`, `sw.js` i la carpeta `icons/`.
 
-### Cómo funciona
+**Settings ▸ Pages ▸ Deploy from a branch**, branca `main`, carpeta `/ (root)`.
 
-- Todo se guarda **primero en el móvil**, así que la app va instantánea y funciona sin cobertura.
-- Cada cambio se envía a Supabase unos segundos después, en segundo plano.
-- Al abrir la app se comprueba el servidor: si tiene datos más nuevos, se traen automáticamente.
-- Gana siempre la versión más reciente. Si dos personas editan a la vez, la última en guardar se impone; pulsa **Traer** antes de una sesión larga de edición.
+La connexió a Supabase ja va dins d'`index.html`: no hi ha res a configurar al mòbil.
 
-### Sobre la seguridad
+En actualitzar arxius, puja el canvi **i** apuja la versió de la memòria cau a `sw.js` (`menu-casa-v6` → `v7`), o els mòbils continuaran amb la versió antiga.
 
-La clave publishable está **diseñada para ser pública**: va dentro del código de la app, que cualquiera puede ver en GitHub. Eso es normal y no es un fallo.
+## 3. Instal·lar-ho al mòbil
 
-Lo que de verdad protege vuestros datos es el **código de casa**, porque la política SQL permite leer y escribir a quien tenga la clave. Con un código largo y aleatorio nadie dará con vuestra fila; con `casa` o `familia`, sí. Por eso la app genera uno al azar: no lo cambies por algo corto.
-
-Aun así, un menú semanal no es información sensible. No metas ahí nada que no quieras que se pueda ver.
-
-En la tabla `menu_casa` de Supabase verás una fila por casa, con todo el contenido en la columna `datos` (JSON). Se puede consultar desde el **Table Editor**.
-
-## 3. Cómo se usa
-
-**Semana** — Siete días, cada uno con Comida y Cena. Toca un hueco vacío para asignar una receta y decir para cuántas raciones. La × quita la receta del hueco. La franja de color de la izquierda dice de un vistazo si el día está completo. También puedes copiar la semana anterior de golpe.
-
-**Recetas** — Biblioteca reutilizable. Cada receta tiene nombre, icono, raciones base, ingredientes (cantidad, unidad y sección del súper) y notas de preparación. La sección del súper se rellena sola a partir del nombre del ingrediente; puedes cambiarla siempre.
-
-**Compra** — Se genera sola con las recetas de la semana que estés viendo. Los ingredientes repetidos se suman (2 tomates el lunes + 3 el jueves = 5 tomates) y las cantidades se escalan según las raciones de cada día. Debajo de cada artículo aparece de qué recetas viene. Toca para marcar lo que ya tienes. **Compartir la lista** la manda por WhatsApp o la copia al portapapeles.
-
-Los artículos marcados se guardan por semana, así que la lista de la semana siguiente empieza limpia.
+Obre `https://pgamundi13.github.io/Menu-casa/` i fes **Afegir a la pantalla d'inici**. Obre-la sempre des de la icona, no des del navegador.
 
 ---
 
-## Copia de seguridad
+## Com es fa servir
 
-En **Ajustes ▸ Descargar copia** se baja un `.json` con todo. **Restaurar copia** lo vuelve a cargar. Útil antes de cambiar de móvil.
+**Setmana** — Set dies amb Dinar i Sopar. Toca un lloc buit per posar-hi una recepta i dir per a quantes racions. La × la treu. La barra de dalt diu quants dels 14 llocs estan posats.
+
+**Receptes** — Receptari compartit: nom, icona, racions base, ingredients (quantitat, unitat i secció del súper) i notes.
+
+**Compra** — Es genera sola amb les receptes de la setmana. Els ingredients repetits se sumen i les quantitats s'escalen segons les racions de cada dia. Toca per marcar el que ja és al carro: si algú és al súper, ho veu ratllat a l'instant.
+
+### La secció del súper es posa sola
+
+En escriure un ingredient, l'app endevina a quina secció va. Entén català i castellà, i també els plurals: *taronges*, *cigrons*, *llenties*, *ous*. Té en compte els paranys de les paraules curtes (*cavall* no va a les begudes per culpa de *cava*) i el congelador mana sobre la resta (*pèsols congelats* van al congelador, no amb la verdura fresca). Sempre es pot canviar a mà.
+
+---
+
+## Com funciona la sincronització
+
+Cada recepta, cada dia del menú i cada article marcat és **una fila pròpia** a la base de dades. Quan algú canvia alguna cosa, Supabase avisa la resta de mòbils per Realtime i només es recarrega el que ha canviat.
+
+- Dues persones poden editar **receptes diferents alhora** sense trepitjar-se.
+- Els canvis surten en un parell de segons, sense tocar res.
+- En tornar a l'app des d'una altra aplicació, es recarrega per si de cas.
+- **Sense cobertura pots mirar** el menú i la llista (en queda una còpia al mòbil), però no desar.
+
+## Estat i problemes
+
+El punt de la barra de dalt: verd connectat, groc carregant, vermell problema. Tocant **Estat** es veu el detall i hi ha **Recarregar ara**.
+
+Si alguna cosa no surt a un altre mòbil:
+
+1. Tanca l'app del tot i torna-la a obrir.
+2. Mira el punt d'estat: si és vermell, el missatge diu què falla.
+3. Si diu que falta preparar la base de dades, torna al pas 1 i executa el SQL.
+
+## Sobre la seguretat
+
+La clau `publishable` va dins del codi de l'app, que és públic a GitHub. És el normal: aquestes claus estan fetes per anar al client.
+
+Dit clar: **qui sàpiga l'adreça de l'app pot veure i editar el menú.** No hi ha usuaris ni contrasenyes, igual que a l'Agenda de casa. Per al menú d'una casa va bé; no hi posis res privat.
