@@ -441,11 +441,19 @@ async function sbError(r) {
   return msg;
 }
 
-let pushT;
+let pushT, pendiente = false, ultimoStamp = null;
 function queuePush() {
   if (!sbReady()) return;
+  pendiente = true;
   clearTimeout(pushT);
-  pushT = setTimeout(() => pushRemote(true), 2000);
+  pushT = setTimeout(() => pushRemote(true), 1200);
+}
+
+/* Envía ya lo que estuviera en cola (al cerrar o esconder la app). */
+function flushPush() {
+  if (!pendiente || !sbReady()) return;
+  clearTimeout(pushT);
+  pushRemote(true);
 }
 
 function setDot(state, msg) {
@@ -458,6 +466,7 @@ const hora = () => new Date().toLocaleTimeString('es-ES', { hour: '2-digit', min
 async function pushRemote(silent) {
   if (!sbReady()) { if (!silent) toast('Rellena los tres campos de Supabase'); return; }
   setDot('busy', 'Enviando…');
+  const stamp = new Date().toISOString();
   try {
     const r = await fetch(sbBase(), {
       method: 'POST',
@@ -465,10 +474,12 @@ async function pushRemote(silent) {
       body: JSON.stringify({
         casa: sb().casa.trim(),
         datos: { recipes: S.recipes, plan: S.plan, checked: S.checked, extras: S.extras, updatedAt: S.updatedAt },
-        actualizado_en: new Date().toISOString(),
+        actualizado_en: stamp,
       }),
     });
     if (!r.ok) throw new Error(await sbError(r));
+    pendiente = false;
+    ultimoStamp = stamp;              // lo acabamos de escribir nosotros
     setDot('ok', 'Guardado · ' + hora());
     if (!silent) toast('Enviado a Supabase');
   } catch (err) {
@@ -477,12 +488,32 @@ async function pushRemote(silent) {
   }
 }
 
+/* Comprobación barata: pide solo la marca de tiempo, no todo el menú.
+   Si ha cambiado respecto a lo último que vimos, hace la descarga completa. */
+async function checkRemote() {
+  if (!sbReady() || document.hidden || pendiente) return;
+  try {
+    const url = `${sbBase()}?casa=eq.${encodeURIComponent(sb().casa.trim())}&select=actualizado_en`;
+    const r = await fetch(url, { headers: sbHead(), cache: 'no-store' });
+    if (!r.ok) return;
+    const rows = await r.json();
+    if (!rows.length) return;
+    const stamp = rows[0].actualizado_en;
+    /* Primera comprobación: puede que el pull de arranque fallara (sin
+       cobertura), así que descargamos de verdad en vez de solo anotar. */
+    if (ultimoStamp === null || stamp !== ultimoStamp) {
+      ultimoStamp = stamp;
+      pullRemote(true);
+    }
+  } catch (e) { /* sin conexión: se reintenta al siguiente ciclo */ }
+}
+
 async function pullRemote(silent) {
   if (!sbReady()) { if (!silent) toast('Rellena los tres campos de Supabase'); return; }
   setDot('busy', 'Trayendo…');
   try {
-    const url = `${sbBase()}?casa=eq.${encodeURIComponent(sb().casa.trim())}&select=datos`;
-    const r = await fetch(url, { headers: sbHead() });
+    const url = `${sbBase()}?casa=eq.${encodeURIComponent(sb().casa.trim())}&select=datos,actualizado_en`;
+    const r = await fetch(url, { headers: sbHead(), cache: 'no-store' });
     if (!r.ok) throw new Error(await sbError(r));
     const rows = await r.json();
 
@@ -492,6 +523,7 @@ async function pullRemote(silent) {
       return;
     }
 
+    ultimoStamp = rows[0].actualizado_en;
     const remote = rows[0].datos || {};
     const rTime = Number(remote.updatedAt) || 0;
 
@@ -500,9 +532,15 @@ async function pullRemote(silent) {
         setDot('ok', 'Sin cambios'); return;
       }
     } else if (silent && rTime <= S.updatedAt) {
-      setDot('ok', 'Al día · ' + hora()); return;
+      /* Lo de aquí es igual o más nuevo. Si es estrictamente más nuevo,
+         el servidor se quedó atrás (dos móviles editaron a la vez):
+         lo reenviamos para que todos acaben con la última versión. */
+      if (rTime < S.updatedAt) { setDot('busy', 'Reenviando…'); pushRemote(true); }
+      else setDot('ok', 'Al día · ' + hora());
+      return;
     }
 
+    const yaHabia = S.updatedAt > 0;
     S.recipes = remote.recipes || [];
     S.plan    = remote.plan    || {};
     S.checked = remote.checked || {};
@@ -512,6 +550,7 @@ async function pullRemote(silent) {
     renderAll();
     setDot('ok', 'Actualizado · ' + hora());
     if (!silent) toast('Traído de Supabase');
+    else if (yaHabia) toast('Alguien ha hecho cambios');
   } catch (err) {
     setDot('err', 'No se pudo traer: ' + err.message);
     if (!silent) toast('No se pudo traer: ' + err.message);
@@ -806,6 +845,29 @@ if (location.hash.startsWith('#c=')) {
 renderAll();
 setDot(sbReady() ? 'ok' : 'off', sbReady() ? 'Listo para sincronizar' : 'Sin sincronizar');
 if (sbReady()) pullRemote(true);
+
+/* ── Mantener los móviles al día ──────────── */
+
+/* No interrumpir mientras se edita una receta o se elige en una hoja. */
+const editando = () => $$('.sheet').some(s => !s.hidden);
+
+/* Cada 15 s, comprobación barata (solo la marca de tiempo). */
+setInterval(() => { if (!editando()) checkRemote(); }, 15000);
+
+/* Al volver a la app: enviar lo pendiente y mirar si hay novedades. */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) flushPush();
+  else if (!editando()) checkRemote();
+});
+
+/* Al cerrar la hoja de edición, comprobar de nuevo. */
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-close]')) setTimeout(checkRemote, 400);
+});
+
+/* Al cerrar o cambiar de app, no perder lo que estuviera en cola. */
+window.addEventListener('pagehide', flushPush);
+window.addEventListener('online', () => { flushPush(); checkRemote(); });
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));

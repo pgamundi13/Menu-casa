@@ -1,5 +1,5 @@
 /* Menú de casa — service worker */
-const CACHE = 'menu-casa-v3';
+const CACHE = 'menu-casa-v4';
 
 const SHELL = [
   './',
