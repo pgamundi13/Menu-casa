@@ -123,14 +123,20 @@ h1,h2,h3,h4{margin:0;font-family:var(--dsp);font-weight:800;letter-spacing:-.02e
 .slot-wrap{position:relative}
 .slot{text-align:left;width:100%;border-radius:var(--r-s);padding:9px 10px;min-height:62px;
   display:flex;flex-direction:column;justify-content:center;gap:3px;transition:transform .12s ease}
-.slot:active{transform:scale(.98)}
+.slot.empty:active{transform:scale(.98)}
 .slot-lbl{font-size:9px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-35)}
 .slot.empty{border:1.5px dashed var(--line);background:transparent}
 .slot.empty .slot-txt{color:var(--ink-35);font-size:14px}
-.slot.full{background:var(--paper);border:1.5px solid transparent}
-.slot.full .slot-txt{font-weight:600;font-size:14px;line-height:1.25;overflow-wrap:anywhere}
-.slot-meta{font-family:var(--mono);font-size:11px;color:var(--ink-60)}
-.slot-clear{position:absolute;top:4px;right:4px;width:26px;height:26px;border-radius:50%;font-size:15px;line-height:1;color:var(--ink-35)}
+.slot.full{background:var(--paper);border:1.5px solid transparent;justify-content:flex-start;gap:6px}
+
+/* Un àpat pot tenir més d'un plat: primer, segon, postres… */
+.plats{display:flex;flex-direction:column;gap:5px}
+.plat{display:flex;align-items:flex-start;gap:4px;background:var(--card);border-radius:6px;padding:6px 4px 6px 8px}
+.plat-txt{flex:1;min-width:0;text-align:left;font-weight:600;font-size:14px;line-height:1.25;overflow-wrap:anywhere}
+.plat-rac{display:block;font-family:var(--mono);font-size:11px;font-weight:400;color:var(--ink-60);margin-top:1px}
+.plat-del{width:24px;height:24px;flex:none;border-radius:50%;font-size:15px;line-height:1;color:var(--ink-35)}
+.plat-add{align-self:flex-start;font-size:12px;font-weight:600;color:var(--olive);padding:3px 2px}
+.plat-add:active{opacity:.6}
 
 /* ══ BOTONES ══════════════════════════════════════════ */
 .primary-btn{background:var(--olive);color:#fff;font-weight:600;font-size:14px;padding:11px 18px;border-radius:999px;white-space:nowrap}
@@ -244,6 +250,13 @@ textarea.input{resize:vertical;line-height:1.5}
 .sync-msg{font-family:var(--mono);font-size:12px;color:var(--ink-60);margin:9px 0 4px}
 .name-row{display:flex;gap:9px;align-items:center}
 .emoji-btn{width:52px;height:52px;flex:none;font-size:26px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-s)}
+.emoji-panel{margin-top:10px;max-height:46vh;overflow-y:auto;background:var(--card);
+  border:1px solid var(--line);border-radius:var(--r-s);padding:10px 12px 12px}
+.emoji-grup{margin:12px 0 6px;font-size:10px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-35)}
+.emoji-grup:first-child{margin-top:0}
+.emoji-fila{display:grid;grid-template-columns:repeat(auto-fill,minmax(38px,1fr));gap:4px}
+.emoji-op{font-size:23px;line-height:1;padding:6px 0;border-radius:7px;background:var(--paper)}
+.emoji-op:active{background:var(--kraft)}
 .pick-list{display:flex;flex-direction:column;gap:7px;margin:6px 0 14px;max-height:44vh;overflow-y:auto}
 .pick{display:flex;align-items:center;gap:11px;text-align:left;width:100%;background:var(--card);
   border:1px solid var(--line);border-radius:var(--r-s);padding:11px 13px}

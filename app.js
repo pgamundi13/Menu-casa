@@ -218,7 +218,7 @@ async function recarregar(taula) {
 /* ══════════════════════════════════════════════
    SETMANA
    ══════════════════════════════════════════════ */
-const enSlot = (dia, moment) => menu.find(m => m.dia === dia && m.momento === moment);
+const platsDe = (dia, moment) => menu.filter(m => m.dia === dia && m.momento === moment);
 const recepta = id => recetas.find(r => r.id === id);
 
 function renderWeek() {
@@ -244,17 +244,24 @@ function renderWeek() {
 
     const slots = $('.slots', day);
     for (const [meal, label] of MEALS) {
-      const set = enSlot(key, meal);
-      const rec = set ? recepta(set.receta_id) : null;
+      const plats = platsDe(key, meal).filter(p => recepta(p.receta_id));
       const wrap = document.createElement('div');
       wrap.className = 'slot-wrap';
-      if (rec) {
-        plens++; posats++;
-        wrap.innerHTML = `<button class="slot full" data-date="${key}" data-meal="${meal}">
+
+      if (plats.length) {
+        plens++; posats += plats.length;
+        wrap.innerHTML = `<div class="slot full">
             <span class="slot-lbl">${label}</span>
-            <span class="slot-txt">${rec.emoji || '🍽️'} ${esc(rec.nombre)}</span>
-            <span class="slot-meta">${set.raciones} rac.</span></button>
-          <button class="slot-clear" data-clear="${key}" data-meal="${meal}" aria-label="Treure el ${label.toLowerCase()} del ${dayShort(d)}">×</button>`;
+            <div class="plats">${plats.map(p => {
+              const rec = recepta(p.receta_id);
+              return `<div class="plat">
+                <button class="plat-txt" data-obrir="${rec.id}">${rec.emoji || '🍽️'} ${esc(rec.nombre)}
+                  <span class="plat-rac">${p.raciones} rac.</span></button>
+                <button class="plat-del" data-treure="${p.id}" aria-label="Treure ${esc(rec.nombre)}">×</button>
+              </div>`;
+            }).join('')}</div>
+            <button class="plat-add" data-date="${key}" data-meal="${meal}">+ Afegir plat</button>
+          </div>`;
       } else {
         wrap.innerHTML = `<button class="slot empty" data-date="${key}" data-meal="${meal}">
             <span class="slot-lbl">${label}</span><span class="slot-txt">+ Afegir</span></button>`;
@@ -265,8 +272,14 @@ function renderWeek() {
     box.appendChild(day);
   }
 
-  $('#wkCount').textContent = `${posats}/14 posats`;
-  $('#wkFill').style.width = Math.round(posats / 14 * 100) + '%';
+  const apats = 14;
+  const fets = [];
+  for (let i = 0; i < 7; i++) {
+    const key = iso(addDays(monday, i));
+    for (const [meal] of MEALS) if (platsDe(key, meal).some(p => recepta(p.receta_id))) fets.push(1);
+  }
+  $('#wkCount').textContent = `${fets.length}/${apats} àpats` + (posats > fets.length ? ` · ${posats} plats` : '');
+  $('#wkFill').style.width = Math.round(fets.length / apats * 100) + '%';
 }
 
 /* ══════════════════════════════════════════════
@@ -316,15 +329,15 @@ function buildShopping() {
   for (let i = 0; i < 7; i++) {
     const key = iso(addDays(monday, i));
     for (const [meal] of MEALS) {
-      const set = enSlot(key, meal);
-      if (!set) continue;
-      const rec = recepta(set.receta_id);
-      if (!rec) continue;
-      const base = Number(rec.raciones) || 1;
-      const factor = (Number(set.raciones) || base) / base;
-      for (const ing of rec.ingredientes || []) {
-        const q = Number(ing.cantidad);
-        push(ing.nombre, isFinite(q) && q > 0 ? q * factor : null, ing.unidad, ing.categoria, rec.nombre);
+      for (const set of platsDe(key, meal)) {
+        const rec = recepta(set.receta_id);
+        if (!rec) continue;
+        const base = Number(rec.raciones) || 1;
+        const factor = (Number(set.raciones) || base) / base;
+        for (const ing of rec.ingredientes || []) {
+          const q = Number(ing.cantidad);
+          push(ing.nombre, isFinite(q) && q > 0 ? q * factor : null, ing.unidad, ing.categoria, rec.nombre);
+        }
       }
     }
   }
@@ -405,9 +418,12 @@ document.addEventListener('click', e => {
 function openPick(dia, meal) {
   picking = { dia, meal };
   const d = new Date(dia + 'T12:00:00');
-  $('#pickTitle').textContent = `${MEALS.find(m => m[0]===meal)[1]} · ${dayName(d)} ${dayShort(d)}`;
-  const cur = enSlot(dia, meal);
-  $('#pickServings').value = cur ? cur.raciones : 2;
+  const ja = platsDe(dia, meal).filter(p => recepta(p.receta_id)).length;
+  const nom = MEALS.find(m => m[0]===meal)[1];
+  $('#pickTitle').textContent = ja
+    ? `${nom} · ${ja + 1}r plat`
+    : `${nom} · ${dayName(d)} ${dayShort(d)}`;
+  $('#pickServings').value = ja ? platsDe(dia, meal)[0].raciones : 2;
   $('#pickSearch').value = '';
   renderPick();
   openSheet('#sheetPick');
@@ -424,7 +440,18 @@ function renderPick() {
     : `<div class="empty"><p>Encara no hi ha receptes. Crea'n una i torna aquí.</p></div>`;
 }
 
-const EMOJIS = ['🍽️','🥘','🍲','🍝','🍕','🥗','🍚','🍜','🌮','🥪','🍳','🥩','🐟','🍤','🍗','🥔','🍅','🥦','🫕','🍛','🥟','🧆','🌯','🥧','🍠','🫘','🥕','🧀','🍞','🥐','🍰','🥞','🍢','🫙'];
+/* Tots els emojis de menjar i beure, per grups. */
+const EMOJIS = [
+  ['Plats', '🍽️ 🥘 🍲 🫕 🥣 🥗 🍝 🍜 🍛 🍚 🍱 🥡 🍢 🥟 🥠 🍳 🥚 🧆 🥙 🌮 🌯 🫔 🥪 🍔 🌭 🍕 🍟 🍿 🥫 🍥 🍘 🍙 🍣 🍤'],
+  ['Carn i peix', '🥩 🍖 🍗 🥓 🐟 🐠 🐡 🦐 🦞 🦀 🦑 🐙 🦪 🐔 🦆 🦃 🐄 🐖 🐑 🐰'],
+  ['Verdura', '🥬 🥦 🥒 🌽 🥕 🧅 🧄 🥔 🍅 🍆 🫑 🌶️ 🍄 🫒 🥑 🎃 🫚 🫛 🌱 🌿 🍠'],
+  ['Fruita', '🍇 🍈 🍉 🍊 🍋 🍌 🍍 🥭 🍎 🍏 🍐 🍑 🍒 🍓 🫐 🥝 🥥 🌰 🥜'],
+  ['Pa i forn', '🍞 🥖 🥐 🫓 🥯 🥨 🧇 🥞 🌾'],
+  ['Dolços', '🍰 🎂 🧁 🥧 🍮 🍯 🍫 🍬 🍭 🍩 🍪 🍨 🍦 🍧 🥮 🍡 🧊'],
+  ['Làctics', '🧀 🥛 🧈 🍼'],
+  ['Begudes', '☕ 🫖 🍵 🥤 🧋 🧃 🧉 🍺 🍻 🍷 🥂 🍸 🍹 🥃 🍶 🍾 🫗 💧'],
+  ['Altres', '🧂 🫙 🏺 🥢 🍴 🥄 🔪 🧑‍🍳 🔥 ⏲️ 🎉 ❤️'],
+].map(([g, s]) => [g, s.split(' ').filter(Boolean)]);
 const blankIng = () => ({ nombre:'', cantidad:'', unidad:'g', categoria:'otros' });
 
 function openRecipe(id) {
@@ -492,17 +519,22 @@ $('#nextWeek').addEventListener('click', () => { monday = addDays(monday, 7); re
 $('#todayBtn').addEventListener('click', () => { monday = mondayOf(new Date()); renderAll(); });
 
 $('#days').addEventListener('click', async e => {
-  const clear = e.target.closest('[data-clear]');
-  if (clear) {
-    const { clear: dia, meal } = clear.dataset;
-    menu = menu.filter(m => !(m.dia === dia && m.momento === meal));
+  /* Treure un plat concret */
+  const treure = e.target.closest('[data-treure]');
+  if (treure) {
+    const id = treure.dataset.treure;
+    menu = menu.filter(m => m.id !== id);
     renderAll();
-    const { error } = await db.from('menu').delete().eq('dia', dia).eq('momento', meal);
-    if (error) { fallada(error, 'treure la recepta'); recarregar('menu'); }
+    const { error } = await db.from('menu').delete().eq('id', id);
+    if (error) { fallada(error, 'treure el plat'); recarregar('menu'); }
     return;
   }
-  const slot = e.target.closest('.slot');
-  if (slot) openPick(slot.dataset.date, slot.dataset.meal);
+  /* Veure la recepta */
+  const obrir = e.target.closest('[data-obrir]');
+  if (obrir) { openRecipe(obrir.dataset.obrir); return; }
+  /* Afegir-ne un (a un àpat buit o a un que ja en té) */
+  const add = e.target.closest('[data-date]');
+  if (add) openPick(add.dataset.date, add.dataset.meal);
 });
 
 $('#pickSearch').addEventListener('input', renderPick);
@@ -513,11 +545,19 @@ $('#pickList').addEventListener('click', async e => {
   const fila = { dia: picking.dia, momento: picking.meal, receta_id: b.dataset.pick, raciones };
   closeSheet($('#sheetPick'));
 
-  menu = menu.filter(m => !(m.dia === fila.dia && m.momento === fila.momento)).concat([fila]);
+  /* Es pinta de seguida amb un id provisional; en tornar del
+     servidor es canvia pel de debò. */
+  const provisional = { ...fila, id: 'tmp-' + Math.random().toString(36).slice(2) };
+  menu = menu.concat([provisional]);
   renderAll();
 
-  const { error } = await db.from('menu').upsert(fila, { onConflict: 'dia,momento' });
-  if (error) fallada(error, 'desar la recepta del dia');
+  const { error } = await db.from('menu').insert(fila);
+  if (error) {
+    menu = menu.filter(m => m.id !== provisional.id);
+    renderAll();
+    fallada(error, 'posar el plat');
+    return;
+  }
   recarregar('menu');
 });
 $('#pickNew').addEventListener('click', () => { closeSheet($('#sheetPick')); openRecipe(null); });
@@ -558,8 +598,11 @@ $('#recEmoji').addEventListener('click', () => {
   if (grid) { grid.remove(); return; }
   grid = document.createElement('div');
   grid.id = 'emojiGrid';
-  grid.style.cssText = 'display:grid;grid-template-columns:repeat(8,1fr);gap:5px;margin-top:9px';
-  grid.innerHTML = EMOJIS.map(e => `<button type="button" data-e="${e}" style="font-size:22px;padding:7px 0;background:#fff;border:1px solid var(--line);border-radius:7px">${e}</button>`).join('');
+  grid.className = 'emoji-panel';
+  grid.innerHTML = EMOJIS.map(([g, list]) => `
+    <p class="emoji-grup">${g}</p>
+    <div class="emoji-fila">${list.map(e => `<button type="button" class="emoji-op" data-e="${e}">${e}</button>`).join('')}</div>
+  `).join('');
   $('.name-row').after(grid);
   grid.addEventListener('click', ev => {
     const b = ev.target.closest('[data-e]');
@@ -568,6 +611,7 @@ $('#recEmoji').addEventListener('click', () => {
     $('#recEmoji').textContent = b.dataset.e;
     grid.remove();
   });
+  grid.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 });
 
 $('#saveRecipe').addEventListener('click', async () => {
@@ -611,15 +655,24 @@ $('#copyPrev').addEventListener('click', async () => {
   for (let i = 0; i < 7; i++) {
     const desde = iso(addDays(prev, i)), cap = iso(addDays(monday, i));
     for (const [meal] of MEALS) {
-      const s = enSlot(desde, meal);
-      if (s) files.push({ dia: cap, momento: meal, receta_id: s.receta_id, raciones: s.raciones });
+      for (const s of platsDe(desde, meal)) {
+        files.push({ dia: cap, momento: meal, receta_id: s.receta_id, raciones: s.raciones });
+      }
     }
   }
   if (!files.length) { toast('La setmana anterior és buida'); return; }
-  const { error } = await db.from('menu').upsert(files, { onConflict: 'dia,momento' });
-  if (error) { fallada(error, 'copiar la setmana'); return; }
+
+  /* Sense el buidat previ, copiar dos cops deixaria els plats duplicats. */
+  const teRes = menu.some(m => m.dia >= iso(monday) && m.dia <= iso(addDays(monday,6)));
+  if (teRes && !confirm('Aquesta setmana ja té plats posats. Es substituiran pels de la setmana anterior. Continuo?')) return;
+
+  const { error: e1 } = await db.from('menu').delete().gte('dia', iso(monday)).lte('dia', iso(addDays(monday,6)));
+  if (e1) { fallada(e1, 'copiar la setmana'); return; }
+  const { error: e2 } = await db.from('menu').insert(files);
+  if (e2) { fallada(e2, 'copiar la setmana'); return; }
+
   await recarregar('menu');
-  toast(`Copiats ${files.length} àpats`);
+  toast(`Copiats ${files.length} plats`);
 });
 
 $('#clearWeek').addEventListener('click', async () => {
