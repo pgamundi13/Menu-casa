@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Menú de casa</title>
+<meta name="description" content="Planifica las comidas y cenas de la semana y genera la lista de la compra.">
+<meta name="theme-color" content="#3A5742">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Menú de casa">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Instrument+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1 class="brand">Menú<span>de casa</span></h1>
+  <button id="btnSettings" class="icon-btn" aria-label="Ajustes y sincronización">
+    <span id="syncDot" class="sync-dot" data-state="off"></span>
+    Ajustes
+  </button>
+</header>
+
+<main id="main">
+
+  <!-- ══════════ SEMANA ══════════ -->
+  <section id="view-semana" class="view is-active" aria-label="Planificador semanal">
+    <div class="weeknav">
+      <button id="prevWeek" class="wk-arrow" aria-label="Semana anterior">‹</button>
+      <div class="wk-label">
+        <span class="wk-eyebrow">Semana</span>
+        <strong id="weekRange">—</strong>
+      </div>
+      <button id="nextWeek" class="wk-arrow" aria-label="Semana siguiente">›</button>
+    </div>
+    <button id="todayBtn" class="link-btn">Ir a esta semana</button>
+
+    <div id="days" class="days"></div>
+
+    <div class="week-actions">
+      <button id="copyPrev" class="ghost-btn">Copiar la semana anterior</button>
+      <button id="clearWeek" class="ghost-btn danger">Vaciar la semana</button>
+    </div>
+  </section>
+
+  <!-- ══════════ RECETAS ══════════ -->
+  <section id="view-recetas" class="view" aria-label="Recetas">
+    <div class="view-head">
+      <h2>Recetas</h2>
+      <button id="newRecipe" class="primary-btn">Nueva receta</button>
+    </div>
+    <input id="recipeSearch" class="search" type="search" placeholder="Buscar receta o ingrediente" autocomplete="off">
+    <div id="recipeList" class="recipe-list"></div>
+  </section>
+
+  <!-- ══════════ COMPRA ══════════ -->
+  <section id="view-compra" class="view" aria-label="Lista de la compra">
+    <div class="view-head">
+      <h2>La compra</h2>
+      <span id="shopWeek" class="shop-week">—</span>
+    </div>
+
+    <div class="ticket-wrap">
+      <div class="ticket">
+        <div class="ticket-head">
+          <p class="ticket-title">Lista de la compra</p>
+          <p class="ticket-sub" id="ticketSub">—</p>
+        </div>
+        <div id="shopList"></div>
+        <div class="ticket-foot">
+          <span>Total</span>
+          <span class="dots"></span>
+          <span id="shopTotal">0 artículos</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="shop-actions">
+      <button id="addExtra" class="ghost-btn">Añadir algo suelto</button>
+      <button id="shareList" class="ghost-btn">Compartir la lista</button>
+      <button id="uncheckAll" class="ghost-btn">Desmarcar todo</button>
+    </div>
+  </section>
+
+</main>
+
+<nav class="tabbar" role="tablist">
+  <button class="tab is-active" data-view="semana" role="tab"><span class="t-ico">▤</span>Semana</button>
+  <button class="tab" data-view="recetas" role="tab"><span class="t-ico">✎</span>Recetas</button>
+  <button class="tab" data-view="compra" role="tab"><span class="t-ico">🛒</span>Compra<span id="tabBadge" class="badge"></span></button>
+</nav>
+
+<!-- ══════════ HOJA: elegir receta ══════════ -->
+<div id="sheetPick" class="sheet" hidden>
+  <div class="sheet-bg" data-close></div>
+  <div class="sheet-panel">
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <h3 id="pickTitle">Elegir receta</h3>
+      <button class="icon-btn sm" data-close>Cerrar</button>
+    </div>
+    <input id="pickSearch" class="search" type="search" placeholder="Buscar receta" autocomplete="off">
+    <div class="field-row">
+      <label for="pickServings">Raciones</label>
+      <input id="pickServings" type="number" min="1" max="30" step="1" value="2" inputmode="numeric">
+    </div>
+    <div id="pickList" class="pick-list"></div>
+    <button id="pickNew" class="ghost-btn full">Crear una receta nueva</button>
+  </div>
+</div>
+
+<!-- ══════════ HOJA: editar receta ══════════ -->
+<div id="sheetRecipe" class="sheet" hidden>
+  <div class="sheet-bg" data-close></div>
+  <div class="sheet-panel tall">
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <h3 id="recipeTitle">Nueva receta</h3>
+      <button class="icon-btn sm" data-close>Cerrar</button>
+    </div>
+
+    <div class="form">
+      <div class="name-row">
+        <button id="recEmoji" class="emoji-btn" aria-label="Cambiar icono">🍽️</button>
+        <input id="recName" class="input big" type="text" placeholder="Nombre de la receta" autocomplete="off">
+      </div>
+
+      <div class="field-row">
+        <label for="recServings">Para cuántas raciones</label>
+        <input id="recServings" type="number" min="1" max="30" step="1" value="2" inputmode="numeric">
+      </div>
+
+      <h4 class="sub-h">Ingredientes</h4>
+      <div id="ingList" class="ing-list"></div>
+      <button id="addIng" class="ghost-btn full">Añadir ingrediente</button>
+
+      <h4 class="sub-h">Preparación <span class="opt">opcional</span></h4>
+      <textarea id="recNotes" class="input" rows="4" placeholder="Pasos, tiempos, trucos…"></textarea>
+    </div>
+
+    <div class="sheet-foot">
+      <button id="delRecipe" class="ghost-btn danger">Borrar</button>
+      <button id="saveRecipe" class="primary-btn">Guardar receta</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ HOJA: ajustes ══════════ -->
+<div id="sheetSettings" class="sheet" hidden>
+  <div class="sheet-bg" data-close></div>
+  <div class="sheet-panel">
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <h3>Ajustes</h3>
+      <button class="icon-btn sm" data-close>Cerrar</button>
+    </div>
+
+    <div class="form">
+      <h4 class="sub-h">Sincronizar con Supabase</h4>
+      <p class="help">Sin esto la app guarda todo en este móvil y funciona igual. Con esto, todos los móviles de casa comparten el mismo menú.</p>
+
+      <label class="lbl" for="sbUrl">URL del proyecto</label>
+      <input id="sbUrl" class="input" type="url" placeholder="https://xxxxxxxx.supabase.co" autocomplete="off" spellcheck="false">
+
+      <label class="lbl" for="sbKey">Clave publishable</label>
+      <input id="sbKey" class="input" type="text" placeholder="sb_publishable_… (o eyJ… si es antigua)" autocomplete="off" spellcheck="false">
+
+      <label class="lbl" for="sbCasa">Código de casa</label>
+      <input id="sbCasa" class="input" type="text" placeholder="inventa uno largo" autocomplete="off" spellcheck="false">
+      <p class="help" style="margin-top:6px">Es lo que separa vuestro menú del de cualquier otro. Usa algo difícil de adivinar, como una contraseña.</p>
+
+      <p id="syncMsg" class="sync-msg">Sin sincronizar</p>
+      <div class="btn-row">
+        <button id="pullNow" class="ghost-btn">Traer</button>
+        <button id="pushNow" class="primary-btn">Enviar</button>
+      </div>
+      <button id="shareCfg" class="ghost-btn full" style="margin-top:8px">Copiar enlace para otro móvil</button>
+
+      <h4 class="sub-h">Copia de seguridad</h4>
+      <div class="btn-row">
+        <button id="exportJson" class="ghost-btn">Descargar copia</button>
+        <button id="importJson" class="ghost-btn">Restaurar copia</button>
+      </div>
+      <input id="fileInput" type="file" accept="application/json" hidden>
+
+      <h4 class="sub-h">Empezar de cero</h4>
+      <button id="wipe" class="ghost-btn danger full">Borrar todos los datos</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
