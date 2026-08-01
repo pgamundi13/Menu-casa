@@ -26,7 +26,21 @@ const CATS = [
   { id: 'otros',      label: 'Altres',           emoji: '🧺' },
 ];
 
-const UNITS = ['g','kg','ml','l','u','cullerada','culleradeta','pessic','gra','manat','llauna','paquet','al gust'];
+const UNITS = ['g','kg','ml','l','unitat','cullerada','culleradeta','pessic','gra','manat','llauna','paquet','al gust'];
+
+/* Formes antigues o en castellà que volen dir el mateix. Es
+   normalitzen en llegir, perquè "6 u" i "2 unitats" se sumin. */
+const ALIES = { u:'unitat', ud:'unitat', uds:'unitat', unitats:'unitat', unidad:'unitat', unidades:'unitat',
+                cda:'cullerada', cdta:'culleradeta', pizca:'pessic', diente:'gra', manojo:'manat',
+                lata:'llauna', paquete:'paquet', 'al gusto':'al gust' };
+
+const normUnitat = u => ALIES[norm(u)] || (u || '').trim();
+
+/* "1 unitat" pero "6 unitats". */
+function mostraUnitat(u, q) {
+  if (u === 'unitat') return q === 1 ? 'unitat' : 'unitats';
+  return u;
+}
 
 /* Paraules per endevinar la secció. Sense accents: el text es
    normalitza abans de comparar. Català i castellà barrejats,
@@ -288,11 +302,12 @@ function buildShopping() {
   const wk = weekKey(monday);
   const map = new Map();
 
-  const push = (nom, quant, unitat, cat, de, extraId) => {
+  const push = (nom, quant, u, cat, de, extraId) => {
     if (!norm(nom)) return;
+    const unitat = normUnitat(u);
     const k = norm(nom) + '|' + norm(unitat);
     let e = map.get(k);
-    if (!e) { e = { key:k, name:nom.trim(), unit:(unitat||'').trim(), qty:0, hasQty:false, cat:cat||'otros', from:[] }; map.set(k, e); }
+    if (!e) { e = { key:k, name:nom.trim(), unit:unitat, qty:0, hasQty:false, cat:cat||'otros', from:[] }; map.set(k, e); }
     if (quant != null && isFinite(quant) && quant > 0) { e.qty += quant; e.hasQty = true; }
     if (de && !e.from.includes(de)) e.from.push(de);
     if (extraId) e.extraId = extraId;
@@ -351,7 +366,8 @@ function renderShopping() {
       </div>
       ${g.items.map(it => {
         const fet = estaMarcat(wk, it.key);
-        const qty = it.hasQty ? `${fmtQty(it.qty)}${it.unit ? ' ' + esc(it.unit) : ''}` : esc(it.unit || '');
+        const u = mostraUnitat(it.unit, it.qty);
+        const qty = it.hasQty ? `${fmtQty(it.qty)}${u ? ' ' + esc(u) : ''}` : esc(it.unit || '');
         const from = it.from.length
           ? `<span class="item-from">${esc(it.from.slice(0,2).join(', '))}${it.from.length > 2 ? ` +${it.from.length-2}` : ''}</span>` : '';
         return `<button class="item${fet?' done':''}" data-item="${esc(it.key)}">
@@ -433,9 +449,10 @@ function openRecipe(id) {
 
 function renderIngs() {
   $('#ingList').innerHTML = editing.ingredientes.map((ing, idx) => {
-    /* Si una recepta antiga té una unitat que ja no és a la llista,
-       l'afegim perquè no es perdi en obrir-la. */
-    const unitats = UNITS.includes(ing.unidad) || !ing.unidad ? UNITS : [ing.unidad, ...UNITS];
+    /* Les receptes antigues poden portar "u" o "ud": es passen a
+       la forma actual perquè, en desar, quedin igualades. */
+    const u = normUnitat(ing.unidad);
+    const unitats = UNITS.includes(u) || !u ? UNITS : [u, ...UNITS];
     return `<div class="ing" data-idx="${idx}">
       <div class="ing-top">
         <input class="i-name" type="text" value="${esc(ing.nombre)}" placeholder="Ingredient" autocomplete="off">
@@ -443,7 +460,7 @@ function renderIngs() {
       </div>
       <div class="ing-bot">
         <input class="i-qty" type="text" inputmode="decimal" value="${esc(String(ing.cantidad ?? ''))}" placeholder="Quant.">
-        <select class="i-unit">${unitats.map(u => `<option value="${esc(u)}"${u===ing.unidad?' selected':''}>${esc(u)}</option>`).join('')}</select>
+        <select class="i-unit">${unitats.map(x => `<option value="${esc(x)}"${x===u?' selected':''}>${esc(x)}</option>`).join('')}</select>
         <select class="i-cat">${CATS.map(c => `<option value="${c.id}"${c.id===ing.categoria?' selected':''}>${c.emoji} ${c.label}</option>`).join('')}</select>
       </div>
     </div>`;
@@ -645,10 +662,11 @@ function parseExtra(raw) {
 }
 
 $('#addExtra').addEventListener('click', async () => {
-  const raw = prompt('Escriu-ho amb la quantitat al final.\nPer exemple: Paper de cuina 2 u');
+  const raw = prompt('Escriu-ho amb la quantitat al final.\nPer exemple: Paper de cuina 2 unitats');
   if (!raw || !raw.trim()) return;
   const p = parseExtra(raw.trim());
   if (!p.nombre) return;
+  p.unidad = normUnitat(p.unidad);
   const { error } = await db.from('extras').insert({ ...p, categoria: guessCat(p.nombre), semana: weekKey(monday) });
   if (error) { fallada(error, 'afegir l\u2019article'); return; }
   await recarregar('extras');
@@ -670,7 +688,8 @@ $('#shareList').addEventListener('click', async () => {
     txt += `\n${g.emoji} ${g.label.toUpperCase()}\n`;
     for (const it of g.items) {
       const fet = estaMarcat(wk, it.key) ? '✓ ' : '· ';
-      const q = it.hasQty ? ` — ${fmtQty(it.qty)}${it.unit ? ' ' + it.unit : ''}` : (it.unit ? ` — ${it.unit}` : '');
+      const u = mostraUnitat(it.unit, it.qty);
+      const q = it.hasQty ? ` — ${fmtQty(it.qty)}${u ? ' ' + u : ''}` : (it.unit ? ` — ${it.unit}` : '');
       txt += `${fet}${it.name}${q}\n`;
     }
   }

@@ -1,5 +1,5 @@
 /* Menú de casa — service worker */
-const CACHE = 'menu-casa-v7';
+const CACHE = 'menu-casa-v8';
 
 const SHELL = ['./','./index.html','./app.js','./manifest.json',
   './icons/icon-192.png','./icons/icon-512.png','./icons/icon-maskable-512.png'];
