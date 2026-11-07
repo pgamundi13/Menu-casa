@@ -1,47 +1,52 @@
-/* Menú de casa — service worker */
-const CACHE = 'menu-casa-v9';
+var CACHE = "japan-trip-v1";
+var ASSETS = [
+  "./",
+  "./index.html",
+  "./manifest.json",
+  "./icon-192.png",
+  "./icon-512.png"
+];
 
-const SHELL = ['./','./index.html','./app.js','./manifest.json',
-  './icons/icon-192.png','./icons/icon-512.png','./icons/icon-maskable-512.png'];
-
-self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE)
-    .then(c => Promise.allSettled(SHELL.map(u => c.add(u))))
-    .then(() => self.skipWaiting()));
+self.addEventListener("install", function (e) {
+  self.skipWaiting();
+  e.waitUntil(
+    caches.open(CACHE).then(function (cache) {
+      return cache.addAll(ASSETS);
+    })
+  );
 });
 
-self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys()
-    .then(k => Promise.all(k.filter(x => x !== CACHE).map(x => caches.delete(x))))
-    .then(() => self.clients.claim()));
+self.addEventListener("activate", function (e) {
+  e.waitUntil(
+    caches.keys().then(function (keys) {
+      return Promise.all(
+        keys.filter(function (k) { return k !== CACHE; }).map(function (k) { return caches.delete(k); })
+      );
+    })
+  );
+  self.clients.claim();
 });
 
-self.addEventListener('fetch', e => {
-  const { request } = e;
-  if (request.method !== 'GET') return;
-  const url = new URL(request.url);
+// Network-first: always try to get the latest version online.
+// Falls back to cache automatically when offline (e.g. traveling without data).
+self.addEventListener("fetch", function (e) {
+  var req = e.request;
+  if (req.method !== "GET") return;
 
-  // Supabase (incluido el WebSocket de Realtime) siempre va a la red.
-  if (url.hostname.endsWith('supabase.co') || url.hostname.endsWith('supabase.in')) return;
-
-  // La app: red primero, para coger siempre la última versión.
-  if (request.mode === 'navigate' || url.pathname.endsWith('app.js')) {
-    e.respondWith(
-      fetch(request)
-        .then(r => { const cp = r.clone(); caches.open(CACHE).then(c => c.put(request, cp)); return r; })
-        .catch(() => caches.match(request).then(hit => hit || caches.match('./index.html')))
-    );
-    return;
-  }
-
-  // Resto: caché primero y refresco en segundo plano.
-  e.respondWith(caches.match(request).then(hit => {
-    const net = fetch(request).then(r => {
-      if (r && r.status === 200 && (r.type === 'basic' || r.type === 'cors')) {
-        const cp = r.clone(); caches.open(CACHE).then(c => c.put(request, cp));
-      }
-      return r;
-    }).catch(() => hit);
-    return hit || net;
-  }));
+  e.respondWith(
+    fetch(req)
+      .then(function (res) {
+        if (res && res.status === 200 && res.type === "basic") {
+          var resClone = res.clone();
+          caches.open(CACHE).then(function (cache) { cache.put(req, resClone); });
+        }
+        return res;
+      })
+      .catch(function () {
+        return caches.match(req).then(function (cached) {
+          if (cached) return cached;
+          if (req.mode === "navigate") return caches.match("./index.html");
+        });
+      })
+  );
 });

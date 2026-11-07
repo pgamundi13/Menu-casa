@@ -1,14 +1,14 @@
 {
-  "name": "Menú de casa",
-  "short_name": "Menú",
-  "description": "El menú de la setmana i la llista de la compra, per a tota la casa.",
+  "name": "Menu at Home",
+  "short_name": "Menu",
+  "description": "The week's menu, the shopping list and what's in season in Catalonia, for the whole house.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#2A4131",
   "theme_color": "#2A4131",
-  "lang": "ca",
+  "lang": "en",
   "dir": "ltr",
   "categories": ["food", "lifestyle", "productivity"],
   "icons": [
