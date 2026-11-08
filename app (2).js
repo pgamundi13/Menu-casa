@@ -1,0 +1,1212 @@
+/* ══════════════════════════════════════════════
+   Menu at Home
+   Data lives in Firebase Realtime Database (free Spark plan): recipes,
+   dishes on the menu, extra items and ticked items, each in its own
+   branch. Live listeners keep every phone in the house in sync, and a
+   copy kept on the phone lets the app open without signal.
+   ══════════════════════════════════════════════ */
+
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js';
+import {
+  getDatabase, ref, onValue, push, set, update, remove, get,
+} from 'https://www.gstatic.com/firebasejs/12.17.1/firebase-database.js';
+
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+/* ── Firebase ───────────────────────────────── */
+const CFG = (window.CONFIG && window.CONFIG.FIREBASE) || {};
+const CONFIGURED = !!CFG.apiKey && !!CFG.databaseURL && !/PASTE_YOUR|ENGANXA/.test(JSON.stringify(CFG));
+const SETTINGS_BROKEN = !window.CONFIG;     // the settings block in index.html didn't run (usually a bad paste)
+
+let db = null;
+if (CONFIGURED) db = getDatabase(initializeApp(CFG));
+const R = path => ref(db, path);            // a branch of the database, e.g. R('recetas')
+const ROOT = () => ref(db);                 // the whole database, for changes that touch several branches at once
+
+/* ── Supermarket aisles ─────────────────────── */
+/* The ids stay as they were so existing recipes keep their aisle. */
+const CATS = [
+  { id: 'verduras',   label: 'Fruit & veg',      emoji: '🥬' },
+  { id: 'carne',      label: 'Meat',             emoji: '🥩' },
+  { id: 'pescado',    label: 'Fish & seafood',   emoji: '🐟' },
+  { id: 'lacteos',    label: 'Dairy & eggs',     emoji: '🧀' },
+  { id: 'panaderia',  label: 'Bread & grains',   emoji: '🍞' },
+  { id: 'despensa',   label: 'Pantry',           emoji: '🫙' },
+  { id: 'congelados', label: 'Frozen',           emoji: '🧊' },
+  { id: 'bebidas',    label: 'Drinks',           emoji: '🥤' },
+  { id: 'otros',      label: 'Other',            emoji: '🧺' },
+];
+
+/* ── Units ──────────────────────────────────── */
+const UNITS = ['g','kg','ml','l','unit','tbsp','tsp','pinch','clove','bunch','can','pack','to taste'];
+
+/* Older recipes were saved in Catalan or Spanish; these map them to the
+   current units so "6 u" and "2 units" add up on the shopping list. */
+const ALIASES = {
+  u:'unit', ud:'unit', uds:'unit', unidad:'unit', unidades:'unit', unitat:'unit', unitats:'unit',
+  units:'unit', pc:'unit', pcs:'unit', piece:'unit', pieces:'unit',
+  cda:'tbsp', cullerada:'tbsp', cucharada:'tbsp', tablespoon:'tbsp', tablespoons:'tbsp', tbs:'tbsp',
+  cdta:'tsp', culleradeta:'tsp', cucharadita:'tsp', teaspoon:'tsp', teaspoons:'tsp',
+  pizca:'pinch', pessic:'pinch', pinches:'pinch',
+  diente:'clove', dientes:'clove', gra:'clove', grans:'clove', cloves:'clove',
+  manojo:'bunch', manat:'bunch', bunches:'bunch',
+  lata:'can', llauna:'can', tin:'can', tins:'can', cans:'can',
+  paquete:'pack', paquet:'pack', packet:'pack', packets:'pack', packs:'pack',
+  'al gusto':'to taste', 'al gust':'to taste',
+};
+const PLURAL_UNIT = { unit:'units', clove:'cloves', pinch:'pinches', bunch:'bunches', can:'cans', pack:'packs' };
+
+const normUnit = u => ALIASES[norm(u)] || (u || '').trim();
+const showUnit = (u, q) => (q === 1 || !PLURAL_UNIT[u]) ? u : PLURAL_UNIT[u];
+
+/* ── Aisle guesser ──────────────────────────── */
+/* Words in English, Catalan and Spanish. Text is normalised (lowercase,
+   no accents) before comparing. Multi-word entries beat the single word
+   they start with: "chicken stock" goes to the pantry, not the meat. */
+const GUESS = {
+  verduras: [
+    // Catalan / Spanish
+    'tomaquet','tomate','ceba','cebolla','all','ajo','patata','pastanaga','zanahoria','pebrot','pimiento','enciam','lechuga','espinac','espinaca','carbasso','calabacin','alberginia','berenjena','broquil','brocoli','col-i-flor','coliflor','cogombre','pepino','porro','puerro','xampinyo','champinon','bolet','seta','llimona','limon','taronja','naranja','poma','manzana','platan','platano','maduixa','fresa','alvocat','aguacate','julivert','perejil','api','apio','carbassa','calabaza','mongeta','judia','pesol','guisante','esparrec','esparrago','ruca','rucula','canonge','canonigo','mandarina','pera','raim','uva','melo','melon','sindria','sandia','kiwi','figa','higo','albercoc','albaricoque','pruna','ciruela','col','bleda','acelga','rave','rabanito','remolatxa','remolacha','gingebre','jengibre','escalunya','chalota','carxofa','alcachofa','nectarina','pressec','melocoton','nabiu','arandano','gerd','frambuesa','herbes','verdura','fruita','calcot','escarola','caqui','magrana','granada','pinya','nespre','nispero',
+    // English
+    'tomato','onion','spring onion','garlic','potato','sweet potato','carrot','pepper','bell pepper','lettuce',"lamb's lettuce",'lambs lettuce','spinach','courgette','zucchini','aubergine','eggplant','broccoli','cauliflower','romanesco','cabbage','kale','cucumber','leek','mushroom','celery','pumpkin','squash','bean','green bean','pea','asparagus','artichoke','fennel','beetroot','beet','radish','turnip','parsnip','corn','sweetcorn','chilli','chili','ginger','shallot','rocket','arugula','watercress','chard','endive','basil','parsley','coriander','cilantro','mint','dill','chives','thyme','rosemary','sage','herb','vegetable','veg','fruit','apple','pear','peach','nectarine','apricot','plum','cherry','strawberry','raspberry','blueberry','blackberry','grape','melon','watermelon','fig','banana','orange','mandarin','clementine','lemon','lime','mango','pineapple','pomegranate','persimmon','quince','avocado','coconut','grapefruit','loquat',
+  ],
+  carne: [
+    'pollastre','pollo','vedella','ternera','porc','cerdo','xai','cordero','gall dindi','pavo','pernil','jamon','xorico','chorizo','salsitxa','salchicha','cansalada','panceta','llom','lomo','costella','costilla','filet','solomillo','mandonguilla','albondiga','botifarra','butifarra','fuet','sobrassada','sobrasada','llonganissa','longaniza','conill','conejo','carn picada','carne picada','hamburguesa','embotit','embutido','beicon',
+    'chicken','beef','pork','lamb','turkey','duck','rabbit','veal','ham','bacon','sausage','mince','steak','rib','burger','meatball','salami','prosciutto','pancetta','meat','chop',
+  ],
+  pescado: [
+    'salmo','salmon','lluc','merluza','tonyina','atun','bacalla','bacalao','gamba','llagosti','langostino','musclo','mejillon','calamar','pop','pulpo','sipia','sepia','sardina','seito','boqueron','orada','dorada','llobarro','lubina','rap','rape','cloissa','almeja','anxova','anchoa','truita de riu','trucha','marisc','marisco','peix',
+    'hake','tuna','cod','prawn','shrimp','mussel','clam','squid','calamari','octopus','cuttlefish','sardine','anchovy','sea bass','bass','sea bream','bream','monkfish','trout','seafood','fish','mackerel','crab','lobster','scallop','haddock',
+  ],
+  lacteos: [
+    'llet','leche','formatge','queso','iogurt','yogur','nata','mantega','mantequilla','ou','huevo','mato','requeson','mozzarella','parmesa','parmesano','feta','crema','mascarpone','quefir','kefir','burrata','ricotta',
+    'milk','cheese','yogurt','yoghurt','cream','butter','egg','parmesan','cheddar','buttermilk','creme fraiche','halloumi','brie',
+  ],
+  panaderia: [
+    'pa ratllat','pan rallado','pa','pan','farina','harina','pasta','arros','arroz','espagueti','macarro','macarron','fideu','fideo','tallarines','tallarina','cuscus','quinoa','civada','avena','baguet','baguette','llevat','levadura','galeta','galleta','cereal','torrada','tostada','motlle','molde','lasanya','lasana','noodle','bulgur','polenta','tortilla de blat','tortilla de trigo',
+    'bread','garlic bread','flour','all-purpose flour','all purpose flour','rice','spaghetti','penne','fusilli','macaroni','tagliatelle','lasagne','lasagna','gnocchi','couscous','oat','porridge','yeast','breadcrumb','cracker','biscuit','tortilla','pitta','pita','naan','granola','cornflakes','corn flakes','egg noodles','bun',
+  ],
+  despensa: [
+    'oli','aceite','vinagre','sal','pebre','pimienta','sucre','azucar','mel','miel','tomaquet fregit','tomate frito','conserva','cigro','garbanzo','llentia','lenteja','mongeta seca','alubia','brou','caldo','especia','orenga','oregano','comi','comino','pebre vermell','pimenton','curri','curry','canyella','canela','llorer','laurel','mostassa','mostaza','maionesa','mayonesa','quetxup','ketchup','soja','tahini','cacau','cacao','xocolata','chocolate','fruita seca','frutos secos','ametlla','almendra','nou','nuez','pipa','sesam','sesamo','panses','pasas','blat de moro','maiz','oliva','aceituna','tapera','alcaparra','curcuma','nou moscada','nuez moscada','vainilla','maizena','maicena','bicarbonat','bicarbonato',
+    'oil','olive oil','vegetable oil','vinegar','rice vinegar','wine vinegar','red wine vinegar','white wine vinegar','salt','black pepper','white pepper','ground pepper','peppercorn','red pepper flakes','chilli flakes','chili flakes','chilli powder','chili powder','sugar','honey','syrup','jam','stock','broth','stock cube','chicken stock','beef stock','vegetable stock','fish stock','chicken broth','tomato paste','tomato puree','tomato sauce','passata','chopped tomatoes','tinned','canned','chickpea','lentil','kidney beans','black beans','cannellini beans','butter beans','baked beans','haricot beans','soy sauce','fish sauce','sauce','pesto','mustard','mayonnaise','mayo','paprika','cumin','cinnamon','turmeric','nutmeg','curry powder','curry paste','garlic powder','onion powder','ground ginger','dried','bay leaf','bay leaves','spice','cocoa','vanilla','nut','walnut','almond','hazelnut','cashew','peanut','pistachio','seed','sesame','raisin','sultana','caper','olive','cornflour','cornstarch','baking powder','baking soda','bicarbonate','coconut milk','gravy','popcorn',
+  ],
+  congelados: [
+    'congelat','congelada','congelats','congelades','congelado','congelados','gelat','helado','pizza','croqueta','nugget',
+    'frozen','ice cream','ice-cream','gelato','fish finger','croquette',
+  ],
+  bebidas: [
+    'aigua','agua','vi','vino','cervesa','cerveza','suc','zumo','refresc','refresco','cafe','te','infusio','infusion','beguda','bebida','cava','sidra','kombucha',
+    'water','wine','beer','juice','orange juice','apple juice','soda','coffee','tea','herbal tea','cider','lemonade','tonic','cola','oat milk','almond milk','soy milk','soya milk','plant milk',
+  ],
+};
+
+/* ── Helpers ────────────────────────────────── */
+const norm = s => (s || '').toString().trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const esc  = s => (s ?? '').toString().replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+/* Plurals and diminutives: "eggs", "tomatoes", "cherries", Catalan
+   "cigrons", "llucet", and spelling changes like taronja → taronges. */
+const SUFFIXES = ['', 's', 'es', 'os', 'ns', 'et', 'ets', 'eta', 'etes'];
+function forms(w) {
+  const f = SUFFIXES.map(s => w + s);
+  if (w.endsWith('ja')) f.push(w.slice(0, -2) + 'ges');
+  else if (w.endsWith('ga')) f.push(w.slice(0, -2) + 'gues');
+  else if (w.endsWith('ca')) f.push(w.slice(0, -2) + 'ques');
+  else if (w.endsWith('ça')) f.push(w.slice(0, -2) + 'ces');
+  else if (w.endsWith('a'))  f.push(w.slice(0, -1) + 'es');
+  if (/[^aeiou]y$/.test(w))  f.push(w.slice(0, -1) + 'ies');
+  return f;
+}
+
+/* Where a word appears in a name, or -1. Single words match whole words
+   only, so "cavall" never matches "cava" and "eggplant" never matches "egg". */
+function findWord(n, tokens, w) {
+  if (/[^a-z0-9]/.test(w)) return n.indexOf(w);
+  const v = forms(w);
+  for (const t of tokens) if (v.includes(t)) return n.indexOf(t);
+  return -1;
+}
+const tokensOf = n => n.split(/[^a-z0-9]+/).filter(Boolean);
+
+/* When several words match, the one that comes first wins:
+   in "ice cream" or "frozen peas" the freezer always wins. */
+function guessCat(name) {
+  const n = norm(name);
+  if (!n) return 'otros';
+  const tokens = tokensOf(n);
+  if (GUESS.congelados.some(w => findWord(n, tokens, w) >= 0)) return 'congelados';
+  let best = null;
+  for (const [cat, words] of Object.entries(GUESS)) {
+    for (const w of words) {
+      const pos = findWord(n, tokens, w);
+      if (pos < 0) continue;
+      if (!best || pos < best.pos || (pos === best.pos && w.length > best.len)) best = { cat, pos, len: w.length };
+    }
+  }
+  return best ? best.cat : 'otros';
+}
+
+function fmtQty(n) {
+  if (n == null || !isFinite(n) || n === 0) return '';
+  return (Math.round(n * 100) / 100).toLocaleString('en-GB', { maximumFractionDigits: 2 });
+}
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+function ordinal(n) {
+  const t = n % 100;
+  if (t >= 11 && t <= 13) return n + 'th';
+  return n + ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th');
+}
+
+/* ── Dates ──────────────────────────────────── */
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTHS_LONG = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+
+function mondayOf(date) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d;
+}
+function weekKey(monday) {
+  const t = addDays(monday, 3);
+  const jan1 = new Date(t.getFullYear(), 0, 1);
+  return `${t.getFullYear()}-S${String(Math.ceil((((t - jan1) / 86400000) + 1) / 7)).padStart(2,'0')}`;
+}
+const dayShort  = d => `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+const dayName   = d => new Intl.DateTimeFormat('en-GB', { weekday: 'long' }).format(d);
+const weekRange = m => `${dayShort(m)} – ${dayShort(addDays(m, 6))}`;
+
+/* ══════════════════════════════════════════════
+   SEASONAL CALENDAR — Catalonia
+   Source: Ametller Origen month-by-month calendar, listed by Canal Salut
+   (canalsalut.gencat.cat › Calendaris de temporada). It marks each
+   product's best months. m = months in season (1 = January).
+   ══════════════════════════════════════════════ */
+const SEASON = {
+  veg: [
+    { en:'Lettuce',          ca:'Enciam',             es:'Lechuga',           e:'🥬', m:[4,5,6,7,9,11] },
+    { en:'Courgette',        ca:'Carbassó',           es:'Calabacín',         e:'🥒', m:[6,7,8,9],   alt:['zucchini'] },
+    { en:'Green beans',      ca:'Mongeta verda',      es:'Judía verde',       e:'🫛', m:[6,8,9,10],  alt:['green bean','mongeta tendra','mongetes tendres','mongetes verdes','judias verdes'] },
+    { en:'Cucumber',         ca:'Cogombre',           es:'Pepino',            e:'🥒', m:[6,7,8,9] },
+    { en:'Aubergine',        ca:'Albergínia',         es:'Berenjena',         e:'🍆', m:[7,8,9],     alt:['eggplant'] },
+    { en:'Tomato',           ca:'Tomàquet',           es:'Tomate',            e:'🍅', m:[7,8,9] },
+    { en:'Pepper',           ca:'Pebrot',             es:'Pimiento',          e:'🫑', m:[7,8,9],     alt:['bell pepper','red pepper','green pepper'] },
+    { en:'Chard',            ca:'Bleda',              es:'Acelga',            e:'🥬', m:[1,3,8,10,11,12], alt:['swiss chard'] },
+    { en:'Pumpkin',          ca:'Carbassa',           es:'Calabaza',          e:'🎃', m:[9,10],      alt:['squash','butternut'] },
+    { en:'Spinach',          ca:'Espinac',            es:'Espinaca',          e:'🥬', m:[3,10,11,12] },
+    { en:'Cauliflower',      ca:'Coliflor',           es:'Coliflor',          e:'🥦', m:[2,3,10,11,12], alt:['col-i-flor'] },
+    { en:'Broccoli',         ca:'Bròquil',            es:'Brócoli',           e:'🥦', m:[1,2,3,10,11,12], alt:['brocoli','brecol'] },
+    { en:'Cabbage',          ca:'Col',                es:'Col',               e:'🥬', m:[1,10,11,12], alt:['repollo'] },
+    { en:'Mushrooms',        ca:'Bolet',              es:'Seta',              e:'🍄', m:[10,11],     alt:['mushroom','wild mushroom'] },
+    { en:'Romanesco',        ca:'Romanesco',          es:'Romanesco',         e:'🥦', m:[10,11] },
+    { en:'Leek',             ca:'Porro',              es:'Puerro',            e:'🌿', m:[2,3,4,10,11,12] },
+    { en:'Celery',           ca:'Api',                es:'Apio',              e:'🌿', m:[11,12] },
+    { en:'Radish',           ca:'Rave',               es:'Rábano',            e:'🌱', m:[2,3,4,11,12], alt:['rabanito'] },
+    { en:'Endive',           ca:'Escarola',           es:'Escarola',          e:'🥬', m:[1,2,11,12], alt:['escarole'] },
+    { en:'Calçots',          ca:'Calçot',             es:'Calçot',            e:'🧅', m:[1],         alt:['calcot'] },
+    { en:'Brussels sprouts', ca:'Col de Brussel·les', es:'Col de Bruselas',   e:'🥬', m:[1],         alt:['brussels sprout','col de brusseles','coles de bruselas'] },
+    { en:'Raf tomato',       ca:'Tomàquet Raf',       es:'Tomate Raf',        e:'🍅', m:[1,2] },
+    { en:'Young garlic',     ca:'Alls tendres',       es:'Ajo tierno',        e:'🧄', m:[1,2],       alt:['all tendre','ajos tiernos','green garlic','garlic shoots'] },
+    { en:'Artichoke',        ca:'Carxofa',            es:'Alcachofa',         e:'🌿', m:[1,2,3,4] },
+    { en:'Peas',             ca:'Pèsol',              es:'Guisante',          e:'🫛', m:[3],         alt:['pea'] },
+    { en:'Broad beans',      ca:'Faves',              es:'Haba',              e:'🫛', m:[4],         alt:['broad bean','fava','fava bean','habas'] },
+    { en:'Asparagus',        ca:'Espàrrec',           es:'Espárrago',         e:'🌱', m:[4,5] },
+    { en:'Spring onion',     ca:'Ceba tendra',        es:'Cebolleta',         e:'🧅', m:[4,5],       alt:['cebes tendres'] },
+    { en:'Carrot',           ca:'Pastanaga',          es:'Zanahoria',         e:'🥕', m:[5] },
+  ],
+  fruit: [
+    { en:'Avocado',     ca:'Alvocat',   es:'Aguacate',    e:'🥑', m:[1,2] },
+    { en:'Orange',      ca:'Taronja',   es:'Naranja',     e:'🍊', m:[1,2,3,4,11,12] },
+    { en:'Mandarin',    ca:'Mandarina', es:'Mandarina',   e:'🍊', m:[1,2,3,11,12], alt:['clementine','clementina'] },
+    { en:'Banana',      ca:'Plàtan',    es:'Plátano',     e:'🍌', m:[1,2,3] },
+    { en:'Pineapple',   ca:'Pinya',     es:'Piña',        e:'🍍', m:[1,2,11,12] },
+    { en:'Strawberry',  ca:'Maduixa',   es:'Fresa',       e:'🍓', m:[3,4,5],  alt:['maduixot','freson'] },
+    { en:'Apricot',     ca:'Albercoc',  es:'Albaricoque', e:'🍑', m:[5,6] },
+    { en:'Cherry',      ca:'Cirera',    es:'Cereza',      e:'🍒', m:[5,6] },
+    { en:'Loquat',      ca:'Nespre',    es:'Níspero',     e:'🟡', m:[5] },
+    { en:'Raspberry',   ca:'Gerd',      es:'Frambuesa',   e:'🍓', m:[6] },
+    { en:'Blueberry',   ca:'Nabiu',     es:'Arándano',    e:'🫐', m:[6] },
+    { en:'Melon',       ca:'Meló',      es:'Melón',       e:'🍈', m:[7,8] },
+    { en:'Watermelon',  ca:'Síndria',   es:'Sandía',      e:'🍉', m:[7,8] },
+    { en:'Peach',       ca:'Préssec',   es:'Melocotón',   e:'🍑', m:[7,8] },
+    { en:'Nectarine',   ca:'Nectarina', es:'Nectarina',   e:'🍑', m:[7,8] },
+    { en:'Flat peach',  ca:'Paraguaià', es:'Paraguayo',   e:'🍑', m:[7],      alt:['paraguaia'] },
+    { en:'Fig',         ca:'Figa',      es:'Higo',        e:'🟤', m:[8,9,10], alt:['breva','bacora'] },
+    { en:'Plum',        ca:'Pruna',     es:'Ciruela',     e:'🟣', m:[8] },
+    { en:'Apple',       ca:'Poma',      es:'Manzana',     e:'🍎', m:[9,11,12] },
+    { en:'Pear',        ca:'Pera',      es:'Pera',        e:'🍐', m:[9,11,12] },
+    { en:'Grapes',      ca:'Raïm',      es:'Uva',         e:'🍇', m:[9,10],   alt:['grape'] },
+    { en:'Persimmon',   ca:'Caqui',     es:'Caqui',       e:'🟠', m:[10,11],  alt:['kaki'] },
+    { en:'Pomegranate', ca:'Magrana',   es:'Granada',     e:'🔴', m:[10] },
+    { en:'Mango',       ca:'Mango',     es:'Mango',       e:'🥭', m:[10,11] },
+    { en:'Kiwi',        ca:'Kiwi',      es:'Kiwi',        e:'🥝', m:[11,12] },
+  ],
+};
+
+const SEASON_NAMES = [...SEASON.veg, ...SEASON.fruit].map(it => ({
+  it, names: [it.en, it.ca, it.es, ...(it.alt || [])].map(norm),
+}));
+
+/* Which seasonal product an ingredient is, if any. */
+function seasonItem(name) {
+  const n = norm(name);
+  if (!n) return null;
+  const tokens = tokensOf(n);
+  let best = null;
+  for (const { it, names } of SEASON_NAMES) {
+    for (const w of names) {
+      const pos = findWord(n, tokens, w);
+      if (pos < 0) continue;
+      if (!best || pos < best.pos || (pos === best.pos && w.length > best.len)) best = { it, pos, len: w.length };
+    }
+  }
+  return best ? best.it : null;
+}
+
+const wrapMonth = m => ((m - 1) % 12 + 12) % 12 + 1;
+const inSeason  = (it, m) => it.m.includes(wrapMonth(m));
+
+/* A one-month gap counts as still in season, so a product that skips
+   a single month isn't flagged as ending and then new again. */
+function seasonTag(it, m) {
+  if (it.m.length >= 11) return null;
+  const before = inSeason(it, m - 1) || inSeason(it, m - 2);
+  const after  = inSeason(it, m + 1) || inSeason(it, m + 2);
+  if (!before && !after) return ['only', 'This month only'];
+  if (!before) return ['new', 'New'];
+  if (!after)  return ['ending', 'Ending'];
+  return null;
+}
+
+/* ── State (mirror of the database) ─────────── */
+const MEALS = [['comida', 'Lunch'], ['cena', 'Dinner']];
+const NOW_MONTH = new Date().getMonth() + 1;
+
+let recetas = [], menu = [], extras = [], marcados = [];
+let monday = mondayOf(new Date());
+let seasonMonth = NOW_MONTH;
+let editing = null, picking = null;
+
+/* ── Feedback ───────────────────────────────── */
+let toastT;
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('on');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.classList.remove('on'), 3000);
+}
+function setDot(state, msg) {
+  $('#syncDot').dataset.state = state;
+  if (msg) $('#syncMsg').textContent = msg;
+}
+
+/* Errors say what happened and what to do about it. */
+/* Problems that mean nothing reaches the cloud. Shown in a red bar that
+   stays until it's fixed, not in a toast that disappears. */
+let fatal = null;
+function explain(err) {
+  const t = `${(err && err.code) || ''} ${(err && err.message) || ''}`.toLowerCase();
+  if (/permission.?denied/.test(t)) return 'Firebase is blocking the app. In Firebase › Realtime Database › Rules, change both “false” to “true” and publish. Then reload.';
+  if (/(database ?url|firebase url)/.test(t)) return 'The database address in index.html isn’t right.';
+  return null;
+}
+function markFatal(err) {
+  const msg = explain(err);
+  if (!msg) return false;
+  fatal = msg;
+  updateStatus();
+  return true;
+}
+
+function failed(err, what) {
+  console.error(what, err);
+  if (markFatal(err)) { toast('Not saved: ' + fatal); return; }
+  toast(err && err.message ? `Couldn’t ${what}: ${err.message}` : `Couldn’t ${what}.`);
+}
+
+/* Every write counts as pending until Firebase confirms it, so the app
+   can say honestly whether something is in the cloud or only here. */
+let pending = 0;
+const pendingRecipes = new Set();
+function track(promise, recipeId) {
+  pending++;
+  if (recipeId) { pendingRecipes.add(recipeId); renderRecipes(); }   // the database shows the change before this runs
+  updateStatus();
+  // push() returns a "thenable" without .finally, so wrap it in a real promise
+  return Promise.resolve(promise).finally(() => {
+    pending--;
+    if (recipeId) pendingRecipes.delete(recipeId);
+    updateStatus();
+    renderRecipes();
+  });
+}
+const send = (promise, what) => track(promise).catch(err => failed(err, what));
+
+/* "Saved" only once Firebase confirms it. */
+function save(promise, what, doneMsg, recipeId) {
+  let settled = false;
+  track(promise, recipeId)
+    .then(() => { settled = true; if (doneMsg) toast(doneMsg); })
+    .catch(err => { settled = true; failed(err, what); });
+  setTimeout(() => {
+    if (!settled) toast('Saved on this phone for now. Keep the app open and it will upload as soon as there’s connection.');
+  }, 5000);
+}
+
+function noDb() {
+  if (db) return false;
+  toast('Firebase isn’t set up yet. Open Status to see what’s missing.');
+  return true;
+}
+
+/* ══════════════════════════════════════════════
+   LIVE DATA
+   ══════════════════════════════════════════════ */
+const CACHE_KEY = 'menu-at-home-data';
+let coverGone = false;
+let connected = false;
+let unreachable = false;
+
+/* A copy on the phone, so the app opens with your data even without signal. */
+function saveCache() {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ recetas, menu, extras, marcados })); } catch (e) {}
+}
+function loadCache() {
+  try {
+    const d = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+    if (!d) return false;
+    recetas = d.recetas || []; menu = d.menu || []; extras = d.extras || []; marcados = d.marcados || [];
+    return true;
+  } catch (e) { return false; }
+}
+
+function hideCover(text) {
+  if (text) $('#pState').textContent = text;
+  if (coverGone) return;
+  coverGone = true;
+  setTimeout(() => $('#portada').classList.add('fuera'), 350);
+}
+
+function banner(kind, text) {
+  const b = $('#syncBanner');
+  if (!kind) { b.hidden = true; return; }
+  b.hidden = false;
+  b.dataset.kind = kind;
+  $('#syncBannerText').textContent = text;
+}
+
+function updateStatus() {
+  if (fatal) { setDot('err', fatal); banner('err', fatal); return; }
+  if (!navigator.onLine) {
+    setDot('off', 'Offline. Keep using the app: changes upload when the connection is back, as long as the app stays open.');
+    banner(pending ? 'off' : null, 'No connection. Your changes are on this phone and will upload when the connection is back. Keep the app open until then.');
+  } else if (!connected) {
+    setDot('busy', unreachable ? 'This phone can’t reach Firebase.' : 'Connecting…');
+    banner(unreachable ? 'busy' : null, 'This phone can’t reach Firebase. Check the Wi-Fi or data, and turn off any VPN or ad blocker for this app.');
+  } else if (pending) {
+    setDot('busy', 'Uploading…');
+    banner(null);
+  } else {
+    setDot('ok', 'Connected. Everything is saved in the cloud.');
+    banner(null);
+  }
+}
+
+/* Asks Firebase how many recipes it holds. Compare the number on two
+   phones: if it matches, both are reading the same cloud. */
+async function checkCloud() {
+  if (!db) return;
+  const out = $('#cloudMsg');
+  out.textContent = 'Checking the cloud…';
+  const started = Date.now();
+  while (!connected && !fatal && Date.now() - started < 10000) await new Promise(r => setTimeout(r, 250));
+  if (fatal) { out.textContent = '❌ ' + fatal; return; }
+  if (!connected) {
+    out.textContent = navigator.onLine
+      ? '❌ This phone can’t reach Firebase. Check the Wi-Fi or data, and turn off any VPN or ad blocker for this app.'
+      : '❌ No connection right now.';
+    return;
+  }
+  try {
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase didn’t answer in time')), 10000));
+    const snap = await Promise.race([get(R('recetas')), timeout]);
+    out.textContent = `✅ Connected. The cloud has ${plural(snap.size, 'recipe', 'recipes')}.`
+      + (pending ? ` ${plural(pending, 'change is', 'changes are')} still uploading.` : '');
+  } catch (err) {
+    out.textContent = markFatal(err) ? '❌ ' + fatal : '❌ ' + (err.message || 'Couldn’t check');
+  }
+}
+
+function listenError(err) {
+  console.error('Realtime Database', err);
+  if (!markFatal(err)) setDot('err', 'Couldn’t read the database: ' + ((err && err.message) || 'unknown error'));
+  hideCover('Not connected');
+}
+
+const listOf = snap => {
+  const out = [];
+  snap.forEach(child => {
+    const v = child.val();
+    out.push(v && typeof v === 'object' ? { id: child.key, ...v } : { id: child.key });
+  });
+  return out;
+};
+
+function listen(path, assign) {
+  onValue(R(path), snap => {
+    assign(listOf(snap));
+    saveCache();
+    renderAll();
+    updateStatus();
+    hideCover('Ready');
+  }, listenError);
+}
+
+const byName = (a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'en', { sensitivity: 'base' });
+
+/* ══════════════════════════════════════════════
+   WEEK
+   ══════════════════════════════════════════════ */
+const dishesFor = (dia, meal) => menu.filter(m => m.dia === dia && m.momento === meal);
+const recipe = id => recetas.find(r => r.id === id);
+
+function renderWeek() {
+  $('#weekRange').textContent = weekRange(monday);
+  $('#todayBtn').style.display = iso(monday) === iso(mondayOf(new Date())) ? 'none' : '';
+
+  const today = iso(new Date());
+  const box = $('#days');
+  box.innerHTML = '';
+  let dishes = 0, meals = 0;
+
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(monday, i), key = iso(d);
+    let filled = 0;
+
+    const day = document.createElement('div');
+    day.className = 'day' + (key === today ? ' is-today' : '');
+    day.innerHTML = `<div class="day-spine"></div>
+      <div class="day-body">
+        <div class="day-head"><span class="day-name">${dayName(d)}</span><span class="day-date">${dayShort(d)}</span></div>
+        <div class="slots"></div>
+      </div>`;
+
+    const slots = $('.slots', day);
+    for (const [meal, label] of MEALS) {
+      const list = dishesFor(key, meal).filter(p => recipe(p.receta_id));
+      const wrap = document.createElement('div');
+      wrap.className = 'slot-wrap';
+
+      if (list.length) {
+        filled++; meals++; dishes += list.length;
+        wrap.innerHTML = `<div class="slot full">
+            <span class="slot-lbl">${label}</span>
+            <div class="plats">${list.map(p => {
+              const rec = recipe(p.receta_id);
+              return `<div class="plat">
+                <button class="plat-txt" data-open="${rec.id}">${rec.emoji || '🍽️'} ${esc(rec.nombre)}
+                  <span class="plat-rac">for ${p.raciones}</span></button>
+                <button class="plat-del" data-remove="${p.id}" aria-label="Remove ${esc(rec.nombre)}">×</button>
+              </div>`;
+            }).join('')}</div>
+            <button class="plat-add" data-date="${key}" data-meal="${meal}">+ Add dish</button>
+          </div>`;
+      } else {
+        wrap.innerHTML = `<button class="slot empty" data-date="${key}" data-meal="${meal}">
+            <span class="slot-lbl">${label}</span><span class="slot-txt">+ Add</span></button>`;
+      }
+      slots.appendChild(wrap);
+    }
+    $('.day-spine', day).dataset.fill = filled;
+    box.appendChild(day);
+  }
+
+  $('#wkCount').textContent = `${meals}/14 meals` + (dishes > meals ? `, ${dishes} dishes` : '');
+  $('#wkFill').style.width = Math.round(meals / 14 * 100) + '%';
+}
+
+/* ══════════════════════════════════════════════
+   RECIPES
+   ══════════════════════════════════════════════ */
+function renderRecipes() {
+  const q = norm($('#recipeSearch').value);
+  const box = $('#recipeList');
+  const list = recetas.filter(r => !q || norm(r.nombre).includes(q)
+    || (r.ingredientes || []).some(i => norm(i.nombre).includes(q)));
+
+  if (!list.length) {
+    box.innerHTML = recetas.length
+      ? `<div class="empty"><div class="empty-mark">🔍</div><strong>No matches</strong><p>Try another name or an ingredient.</p></div>`
+      : `<div class="empty"><div class="empty-mark">📖</div><strong>Your recipe book is empty</strong><p>Create your first recipe and you can add it to any day of the week.</p></div>`;
+    return;
+  }
+
+  box.innerHTML = list.map(r => {
+    const n = (r.ingredientes || []).length;
+    return `<button class="rec" data-rec="${r.id}">
+      <span class="rec-emoji">${r.emoji || '🍽️'}</span>
+      <span class="rec-txt"><span class="rec-name">${esc(r.nombre)}</span>
+        <span class="rec-sub">${plural(n, 'ingredient', 'ingredients')}, serves ${r.raciones}${pendingRecipes.has(r.id) ? ' <span class="pend">· not uploaded yet</span>' : ''}</span></span>
+      <span class="rec-chev">›</span></button>`;
+  }).join('');
+}
+
+/* ══════════════════════════════════════════════
+   SHOPPING
+   ══════════════════════════════════════════════ */
+function buildShopping() {
+  const wk = weekKey(monday);
+  const map = new Map();
+
+  const addLine = (name, qty, u, cat, from, extraId) => {
+    if (!norm(name)) return;
+    const unit = normUnit(u);
+    const k = norm(name) + '|' + norm(unit);
+    let e = map.get(k);
+    if (!e) { e = { key: k, name: name.trim(), unit, qty: 0, hasQty: false, cat: cat || 'otros', from: [] }; map.set(k, e); }
+    if (qty != null && isFinite(qty) && qty > 0) { e.qty += qty; e.hasQty = true; }
+    if (from && !e.from.includes(from)) e.from.push(from);
+    if (extraId) e.extraId = extraId;
+  };
+
+  for (let i = 0; i < 7; i++) {
+    const key = iso(addDays(monday, i));
+    for (const [meal] of MEALS) {
+      for (const dish of dishesFor(key, meal)) {
+        const rec = recipe(dish.receta_id);
+        if (!rec) continue;
+        const base = Number(rec.raciones) || 1;
+        const factor = (Number(dish.raciones) || base) / base;
+        for (const ing of rec.ingredientes || []) {
+          const q = Number(ing.cantidad);
+          addLine(ing.nombre, isFinite(q) && q > 0 ? q * factor : null, ing.unidad, ing.categoria, rec.nombre);
+        }
+      }
+    }
+  }
+
+  for (const x of extras.filter(e => e.semana === wk)) {
+    addLine(x.nombre, x.cantidad == null ? null : Number(x.cantidad), x.unidad, x.categoria, null, x.id);
+  }
+
+  const items = [...map.values()];
+  const groups = CATS
+    .map(c => ({ ...c, items: items.filter(i => i.cat === c.id).sort((a, b) => a.name.localeCompare(b.name, 'en')) }))
+    .filter(g => g.items.length);
+
+  return { wk, items, groups };
+}
+
+/* Realtime Database keys can't contain . # $ [ ] or /, so those are
+   stored as %XX. Names without them keep the plain key. */
+const safeKey = s => String(s).replace(/[.#$\[\]\/%]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'));
+const tickId = (wk, key) => safeKey(wk + '::' + key);
+const isTicked = (wk, key) => marcados.some(m => m.id === tickId(wk, key));
+
+function renderShopping() {
+  const { wk, items, groups } = buildShopping();
+  $('#shopWeek').textContent = weekRange(monday);
+  $('#ticketSub').textContent = `Week of ${weekRange(monday)}`;
+
+  const box = $('#shopList');
+  if (!items.length) {
+    box.innerHTML = `<div class="empty"><div class="empty-mark">🧺</div><strong>Nothing to buy yet</strong><p>Add recipes to the week and the list appears here, sorted by supermarket aisle.</p></div>`;
+    $('#shopTotal').textContent = '0 items';
+    updateBadge(0);
+    return;
+  }
+
+  box.innerHTML = groups.map(g => `
+    <div class="cat-block">
+      <div class="cat-head">
+        <span class="cat-emoji">${g.emoji}</span>
+        <span class="cat-name">${g.label}</span>
+        <span class="cat-rule"></span>
+        <span class="cat-n">${g.items.length}</span>
+      </div>
+      ${g.items.map(it => {
+        const done = isTicked(wk, it.key);
+        const u = showUnit(it.unit, it.qty);
+        const qty = it.hasQty ? `${fmtQty(it.qty)}${u ? ' ' + esc(u) : ''}` : esc(it.unit || '');
+        const from = it.from.length
+          ? `<span class="item-from">${esc(it.from.slice(0, 2).join(', '))}${it.from.length > 2 ? ` +${it.from.length - 2}` : ''}</span>` : '';
+        return `<button class="item${done ? ' done' : ''}" data-item="${esc(it.key)}">
+          <span class="box">✓</span>
+          <span class="item-name">${esc(it.name)}${from}</span>
+          <span class="item-qty">${qty}</span>
+          ${it.extraId ? `<span class="item-extra" data-del-extra="${it.extraId}" aria-label="Remove">×</span>` : ''}
+        </button>`;
+      }).join('')}
+    </div>`).join('');
+
+  const left = items.filter(i => !isTicked(wk, i.key)).length;
+  $('#shopTotal').textContent = `${left} of ${items.length} to buy`;
+  updateBadge(left);
+}
+
+function updateBadge(n) {
+  const b = $('#tabBadge');
+  b.textContent = n > 99 ? '99+' : n;
+  b.classList.toggle('on', n > 0);
+}
+
+/* ══════════════════════════════════════════════
+   IN SEASON
+   ══════════════════════════════════════════════ */
+function produceCard(it) {
+  const tag = seasonTag(it, seasonMonth);
+  const bars = Array.from({ length: 12 }, (_, i) => {
+    const m = i + 1, on = it.m.includes(m);
+    return `<i class="${on ? 'on' : ''}${on && m === seasonMonth ? ' cur' : ''}"></i>`;
+  }).join('');
+  return `<div class="pcard">
+    <span class="pc-emoji" aria-hidden="true">${it.e}</span>
+    <span class="pc-en">${esc(it.en)}</span>
+    <span class="pc-ca" lang="ca">${esc(it.ca)}</span>
+    ${tag ? `<span class="pc-tag ${tag[0]}">${tag[1]}</span>` : ''}
+    <span class="pc-year" role="img" aria-label="Best in ${it.m.map(x => MONTHS_LONG[x - 1]).join(', ')}">${bars}</span>
+  </div>`;
+}
+
+/* Your recipes that use something at its best this month. */
+function seasonalRecipes(month) {
+  return recetas.map(r => {
+    const hits = [];
+    for (const ing of r.ingredientes || []) {
+      const cat = ing.categoria || guessCat(ing.nombre);
+      if (cat !== 'verduras') continue;           // tinned, dried or frozen don't count
+      const it = seasonItem(ing.nombre);
+      if (it && inSeason(it, month) && !hits.includes(it)) hits.push(it);
+    }
+    return { r, hits };
+  }).filter(x => x.hits.length).sort((a, b) => b.hits.length - a.hits.length).slice(0, 6);
+}
+
+/* The month rail and title only change when you pick a month, so live
+   updates from other phones don't reset where the rail is scrolled. */
+function renderSeasonMonth() {
+  $('#monthRail').innerHTML = MONTHS.map((m, i) => {
+    const n = i + 1;
+    return `<button class="mchip${n === seasonMonth ? ' on' : ''}${n === NOW_MONTH ? ' now' : ''}" data-month="${n}"
+      role="tab" aria-selected="${n === seasonMonth}" aria-label="${MONTHS_LONG[i]}${n === NOW_MONTH ? ' (this month)' : ''}">${m}</button>`;
+  }).join('');
+
+  $('#legendBars').innerHTML = Array.from({ length: 12 }, (_, i) =>
+    `<i class="${i + 1 === seasonMonth ? 'cur' : 'off'}"></i>`).join('');
+
+  const veg = SEASON.veg.filter(it => it.m.includes(seasonMonth)).length;
+  const fruit = SEASON.fruit.filter(it => it.m.includes(seasonMonth)).length;
+  $('#seasonTitle').textContent = MONTHS_LONG[seasonMonth - 1];
+  $('#seasonSub').textContent = `${plural(veg, 'vegetable', 'vegetables')} and ${plural(fruit, 'fruit', 'fruits')} at their best in Catalonia.`;
+}
+
+function renderSeasonBody() {
+  const byEn = (a, b) => a.en.localeCompare(b.en, 'en');
+  const veg = SEASON.veg.filter(it => it.m.includes(seasonMonth)).sort(byEn);
+  const fruit = SEASON.fruit.filter(it => it.m.includes(seasonMonth)).sort(byEn);
+
+  let html = `
+    <div class="sec-head"><h3>Vegetables</h3><span class="sec-n">${veg.length}</span></div>
+    <div class="pgrid">${veg.map(produceCard).join('')}</div>
+    <div class="sec-head"><h3>Fruit</h3><span class="sec-n">${fruit.length}</span></div>
+    <div class="pgrid">${fruit.map(produceCard).join('')}</div>`;
+
+  if (recetas.length) {
+    const matches = seasonalRecipes(seasonMonth);
+    html += `<div class="sec-head"><h3>Cook with the season</h3></div>`;
+    html += matches.length
+      ? matches.map(({ r, hits }) => `<button class="srec" data-rec="${r.id}">
+          <span class="rec-emoji">${r.emoji || '🍽️'}</span>
+          <span class="rec-txt"><span class="srec-name">${esc(r.nombre)}</span>
+            <span class="srec-uses">Uses ${hits.map(h => h.en.toLowerCase()).join(', ')}</span></span>
+          <span class="rec-chev">›</span></button>`).join('')
+      : `<p class="season-note">None of your recipes use these yet. Pick something from the list and add it to a recipe.</p>`;
+  }
+
+  $('#seasonBody').innerHTML = html;
+}
+
+function centreMonth() {
+  const rail = $('#monthRail'), chip = $('.mchip.on', rail);
+  if (chip) rail.scrollLeft = chip.offsetLeft - rail.clientWidth / 2 + chip.clientWidth / 2;
+}
+
+function renderAll() { renderWeek(); renderRecipes(); renderShopping(); renderSeasonBody(); }
+
+/* ══════════════════════════════════════════════
+   SHEETS
+   ══════════════════════════════════════════════ */
+function openSheet(sel) { $(sel).hidden = false; document.body.style.overflow = 'hidden'; }
+function closeSheet(el) { el.hidden = true; document.body.style.overflow = ''; }
+document.addEventListener('click', e => {
+  const c = e.target.closest('[data-close]');
+  if (c) closeSheet(c.closest('.sheet'));
+});
+
+function openPick(dia, meal) {
+  picking = { dia, meal };
+  const d = new Date(dia + 'T12:00:00');
+  const already = dishesFor(dia, meal).filter(p => recipe(p.receta_id));
+  const label = MEALS.find(m => m[0] === meal)[1];
+  $('#pickTitle').textContent = already.length
+    ? `${label}, ${ordinal(already.length + 1)} dish`
+    : `${label} on ${dayName(d)} ${dayShort(d)}`;
+  $('#pickServings').value = already.length ? already[0].raciones : 2;
+  $('#pickSearch').value = '';
+  renderPick();
+  openSheet('#sheetPick');
+}
+
+function renderPick() {
+  const q = norm($('#pickSearch').value);
+  const list = recetas.filter(r => !q || norm(r.nombre).includes(q));
+  $('#pickList').innerHTML = list.length
+    ? list.map(r => `<button class="pick" data-pick="${r.id}">
+        <span class="rec-emoji">${r.emoji || '🍽️'}</span>
+        <span><strong>${esc(r.nombre)}</strong><small>${plural((r.ingredientes || []).length, 'ingredient', 'ingredients')}, serves ${r.raciones}</small></span>
+      </button>`).join('')
+    : `<div class="empty"><p>No recipes yet. Create one and come back here.</p></div>`;
+}
+
+const EMOJIS = [
+  ['Dishes', '🍽️ 🥘 🍲 🫕 🥣 🥗 🍝 🍜 🍛 🍚 🍱 🥡 🍢 🥟 🥠 🍳 🥚 🧆 🥙 🌮 🌯 🫔 🥪 🍔 🌭 🍕 🍟 🍿 🥫 🍥 🍘 🍙 🍣 🍤'],
+  ['Meat & fish', '🥩 🍖 🍗 🥓 🐟 🐠 🐡 🦐 🦞 🦀 🦑 🐙 🦪 🐔 🦆 🦃 🐄 🐖 🐑 🐰'],
+  ['Vegetables', '🥬 🥦 🥒 🌽 🥕 🧅 🧄 🥔 🍅 🍆 🫑 🌶️ 🍄 🫒 🥑 🎃 🫚 🫛 🌱 🌿 🍠'],
+  ['Fruit', '🍇 🍈 🍉 🍊 🍋 🍌 🍍 🥭 🍎 🍏 🍐 🍑 🍒 🍓 🫐 🥝 🥥 🌰 🥜'],
+  ['Bread & bakery', '🍞 🥖 🥐 🫓 🥯 🥨 🧇 🥞 🌾'],
+  ['Sweets', '🍰 🎂 🧁 🥧 🍮 🍯 🍫 🍬 🍭 🍩 🍪 🍨 🍦 🍧 🥮 🍡 🧊'],
+  ['Dairy', '🧀 🥛 🧈 🍼'],
+  ['Drinks', '☕ 🫖 🍵 🥤 🧋 🧃 🧉 🍺 🍻 🍷 🥂 🍸 🍹 🥃 🍶 🍾 🫗 💧'],
+  ['Other', '🧂 🫙 🏺 🥢 🍴 🥄 🔪 🧑‍🍳 🔥 ⏲️ 🎉 ❤️'],
+].map(([g, s]) => [g, s.split(' ').filter(Boolean)]);
+
+const blankIng = () => ({ nombre: '', cantidad: '', unidad: 'g', categoria: 'otros' });
+
+function openRecipe(id) {
+  const src = id ? recipe(id) : null;
+  editing = src
+    ? { id: src.id, nombre: src.nombre || '', emoji: src.emoji || '🍽️', raciones: src.raciones || 2,
+        notas: src.notas || '', ingredientes: JSON.parse(JSON.stringify(src.ingredientes || [])) }
+    : { id: null, nombre: '', emoji: '🍽️', raciones: 2, notas: '', ingredientes: [] };
+
+  const g = $('#emojiGrid'); if (g) g.remove();
+  $('#recipeTitle').textContent = id ? 'Edit recipe' : 'New recipe';
+  $('#recName').value = editing.nombre;
+  $('#recServings').value = editing.raciones;
+  $('#recNotes').value = editing.notas;
+  $('#recEmoji').textContent = editing.emoji;
+  $('#delRecipe').style.display = id ? '' : 'none';
+  if (!editing.ingredientes.length) editing.ingredientes.push(blankIng());
+  renderIngs();
+  openSheet('#sheetRecipe');
+  if (!id) setTimeout(() => $('#recName').focus(), 300);
+}
+
+function renderIngs() {
+  $('#ingList').innerHTML = editing.ingredientes.map((ing, idx) => {
+    const u = normUnit(ing.unidad);
+    const units = UNITS.includes(u) || !u ? UNITS : [u, ...UNITS];
+    return `<div class="ing" data-idx="${idx}">
+      <div class="ing-top">
+        <input class="i-name" type="text" value="${esc(ing.nombre)}" placeholder="Ingredient" autocomplete="off">
+        <button class="ing-del" data-del="${idx}" aria-label="Remove ingredient">×</button>
+      </div>
+      <div class="ing-bot">
+        <input class="i-qty" type="text" inputmode="decimal" value="${esc(String(ing.cantidad ?? ''))}" placeholder="Qty">
+        <select class="i-unit" aria-label="Unit">${units.map(x => `<option value="${esc(x)}"${x === u ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>
+        <select class="i-cat" aria-label="Aisle">${CATS.map(c => `<option value="${c.id}"${c.id === ing.categoria ? ' selected' : ''}>${c.emoji} ${c.label}</option>`).join('')}</select>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function collectIngs() {
+  editing.ingredientes = $$('#ingList .ing').map(row => ({
+    nombre: $('.i-name', row).value.trim(),
+    cantidad: $('.i-qty', row).value.replace(',', '.').trim(),
+    unidad: $('.i-unit', row).value,
+    categoria: $('.i-cat', row).value,
+  }));
+}
+
+/* ══════════════════════════════════════════════
+   EVENTS — navigation and week
+   ══════════════════════════════════════════════ */
+$$('.tab').forEach(t => t.addEventListener('click', () => {
+  $$('.tab').forEach(x => x.classList.remove('is-active'));
+  t.classList.add('is-active');
+  $$('.view').forEach(v => v.classList.remove('is-active'));
+  $('#view-' + t.dataset.view).classList.add('is-active');
+  window.scrollTo({ top: 0 });
+  if (t.dataset.view === 'season') centreMonth();
+}));
+
+function goToWeek(m) { monday = m; renderAll(); }
+$('#prevWeek').addEventListener('click', () => goToWeek(addDays(monday, -7)));
+$('#nextWeek').addEventListener('click', () => goToWeek(addDays(monday, 7)));
+$('#todayBtn').addEventListener('click', () => goToWeek(mondayOf(new Date())));
+
+$('#days').addEventListener('click', e => {
+  const rm = e.target.closest('[data-remove]');
+  if (rm) {
+    if (noDb()) return;
+    send(remove(R('menu/' + rm.dataset.remove)), 'remove the dish');
+    return;
+  }
+  const open = e.target.closest('[data-open]');
+  if (open) { openRecipe(open.dataset.open); return; }
+  const add = e.target.closest('[data-date]');
+  if (add) openPick(add.dataset.date, add.dataset.meal);
+});
+
+$('#pickSearch').addEventListener('input', renderPick);
+$('#pickList').addEventListener('click', e => {
+  const b = e.target.closest('[data-pick]');
+  if (!b || !picking || noDb()) return;
+  const raciones = Math.max(1, Number($('#pickServings').value) || 2);
+  closeSheet($('#sheetPick'));
+  send(push(R('menu'), { dia: picking.dia, momento: picking.meal, receta_id: b.dataset.pick, raciones }), 'add the dish');
+});
+$('#pickNew').addEventListener('click', () => { closeSheet($('#sheetPick')); openRecipe(null); });
+
+const weekDishes = () => menu.filter(m => m.dia >= iso(monday) && m.dia <= iso(addDays(monday, 6)));
+
+$('#copyPrev').addEventListener('click', () => {
+  if (noDb()) return;
+  const prev = addDays(monday, -7);
+  const rows = [];
+  for (let i = 0; i < 7; i++) {
+    const from = iso(addDays(prev, i)), to = iso(addDays(monday, i));
+    for (const [meal] of MEALS) {
+      for (const s of dishesFor(from, meal)) rows.push({ dia: to, momento: meal, receta_id: s.receta_id, raciones: s.raciones });
+    }
+  }
+  if (!rows.length) { toast('Last week is empty'); return; }
+  const current = weekDishes();
+  if (current.length && !confirm('This week already has dishes. Replace them with last week’s?')) return;
+
+  const changes = {};
+  current.forEach(m => { changes['menu/' + m.id] = null; });
+  rows.forEach(r => { changes['menu/' + push(R('menu')).key] = r; });
+  send(update(ROOT(), changes), 'copy last week');
+  toast(`Copied ${plural(rows.length, 'dish', 'dishes')}`);
+});
+
+$('#clearWeek').addEventListener('click', () => {
+  if (noDb()) return;
+  const current = weekDishes();
+  if (!current.length) { toast('This week is already empty'); return; }
+  if (!confirm('Clear every lunch and dinner this week?')) return;
+  const changes = {};
+  current.forEach(m => { changes['menu/' + m.id] = null; });
+  send(update(ROOT(), changes), 'clear the week');
+  toast('Week cleared');
+});
+
+/* ══════════════════════════════════════════════
+   EVENTS — recipes
+   ══════════════════════════════════════════════ */
+$('#newRecipe').addEventListener('click', () => openRecipe(null));
+$('#recipeSearch').addEventListener('input', renderRecipes);
+$('#recipeList').addEventListener('click', e => {
+  const b = e.target.closest('[data-rec]');
+  if (b) openRecipe(b.dataset.rec);
+});
+
+$('#addIng').addEventListener('click', () => {
+  collectIngs();
+  editing.ingredientes.push(blankIng());
+  renderIngs();
+  const rows = $$('#ingList .ing');
+  $('.i-name', rows[rows.length - 1]).focus();
+});
+
+$('#ingList').addEventListener('click', e => {
+  const d = e.target.closest('[data-del]');
+  if (!d) return;
+  collectIngs();
+  editing.ingredientes.splice(Number(d.dataset.del), 1);
+  if (!editing.ingredientes.length) editing.ingredientes.push(blankIng());
+  renderIngs();
+});
+
+/* The aisle fills itself in when you finish typing an ingredient. */
+$('#ingList').addEventListener('blur', e => {
+  if (!e.target.classList.contains('i-name')) return;
+  const sel = $('.i-cat', e.target.closest('.ing'));
+  if (sel.value === 'otros' && e.target.value.trim()) sel.value = guessCat(e.target.value);
+}, true);
+
+$('#recEmoji').addEventListener('click', () => {
+  let grid = $('#emojiGrid');
+  if (grid) { grid.remove(); return; }
+  grid = document.createElement('div');
+  grid.id = 'emojiGrid';
+  grid.className = 'emoji-panel';
+  grid.innerHTML = EMOJIS.map(([g, list]) => `
+    <p class="emoji-grup">${g}</p>
+    <div class="emoji-fila">${list.map(x => `<button type="button" class="emoji-op" data-e="${x}">${x}</button>`).join('')}</div>
+  `).join('');
+  $('.name-row').after(grid);
+  grid.addEventListener('click', ev => {
+    const b = ev.target.closest('[data-e]');
+    if (!b) return;
+    editing.emoji = b.dataset.e;
+    $('#recEmoji').textContent = b.dataset.e;
+    grid.remove();
+  });
+  grid.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+
+$('#saveRecipe').addEventListener('click', () => {
+  if (noDb()) return;
+  const nombre = $('#recName').value.trim();
+  if (!nombre) { toast('Give the recipe a name'); $('#recName').focus(); return; }
+  collectIngs();
+
+  const data = {
+    nombre,
+    emoji: editing.emoji,
+    raciones: Math.max(1, Number($('#recServings').value) || 2),
+    notas: $('#recNotes').value.trim(),
+    ingredientes: editing.ingredientes
+      .filter(i => i.nombre)
+      .map(i => ({ ...i, unidad: normUnit(i.unidad) })),
+  };
+
+  /* The change shows on screen straight away and syncs in the background. */
+  const target = editing.id ? R('recetas/' + editing.id) : push(R('recetas'));
+  save(set(target, data), 'save the recipe', 'Recipe saved in the cloud ✓', target.key);
+  closeSheet($('#sheetRecipe'));
+  const g = $('#emojiGrid'); if (g) g.remove();
+});
+
+$('#delRecipe').addEventListener('click', () => {
+  if (noDb()) return;
+  if (!confirm(`Delete “${editing.nombre}”? It will also come off any days it’s on.`)) return;
+  const changes = { ['recetas/' + editing.id]: null };
+  menu.filter(m => m.receta_id === editing.id).forEach(m => { changes['menu/' + m.id] = null; });
+  send(update(ROOT(), changes), 'delete the recipe');
+  closeSheet($('#sheetRecipe'));
+  toast('Recipe deleted');
+});
+
+/* ══════════════════════════════════════════════
+   EVENTS — shopping
+   ══════════════════════════════════════════════ */
+$('#shopList').addEventListener('click', e => {
+  const del = e.target.closest('[data-del-extra]');
+  if (del) {
+    e.stopPropagation();
+    if (noDb()) return;
+    send(remove(R('extras/' + del.dataset.delExtra)), 'remove the item');
+    return;
+  }
+  const it = e.target.closest('[data-item]');
+  if (!it || noDb()) return;
+  const wk = weekKey(monday);
+  const id = tickId(wk, it.dataset.item);
+  send(isTicked(wk, it.dataset.item)
+    ? remove(R('marcados/' + id))
+    : set(R('marcados/' + id), { semana: wk }), 'tick the item');
+});
+
+function parseExtra(raw) {
+  const m = raw.match(/^(.*?)[\s]+([\d]+(?:[.,][\d]+)?)\s*([\p{L}]*)$/u);
+  if (m && m[1].trim()) return { nombre: m[1].trim(), cantidad: Number(m[2].replace(',', '.')), unidad: m[3].trim() };
+  return { nombre: raw, cantidad: null, unidad: '' };
+}
+
+$('#addExtra').addEventListener('click', () => {
+  if (noDb()) return;
+  const raw = prompt('Type it with the quantity at the end.\nFor example: Kitchen roll 2 units');
+  if (!raw || !raw.trim()) return;
+  const p = parseExtra(raw.trim());
+  if (!p.nombre) return;
+  p.unidad = normUnit(p.unidad);
+  send(push(R('extras'), { ...p, categoria: guessCat(p.nombre), semana: weekKey(monday) }), 'add the item');
+  toast('Added to the list');
+});
+
+$('#uncheckAll').addEventListener('click', () => {
+  if (noDb()) return;
+  const wk = weekKey(monday);
+  const ticks = marcados.filter(m => m.semana === wk);
+  if (!ticks.length) { toast('Nothing is ticked'); return; }
+  const changes = {};
+  ticks.forEach(m => { changes['marcados/' + m.id] = null; });
+  send(update(ROOT(), changes), 'untick the list');
+  toast('All unticked');
+});
+
+$('#shareList').addEventListener('click', async () => {
+  const { wk, groups } = buildShopping();
+  if (!groups.length) { toast('Nothing to share yet'); return; }
+  let txt = `SHOPPING LIST · ${weekRange(monday)}\n`;
+  for (const g of groups) {
+    txt += `\n${g.emoji} ${g.label.toUpperCase()}\n`;
+    for (const it of g.items) {
+      const mark = isTicked(wk, it.key) ? '✓ ' : '· ';
+      const u = showUnit(it.unit, it.qty);
+      const q = it.hasQty ? ` — ${fmtQty(it.qty)}${u ? ' ' + u : ''}` : (it.unit ? ` — ${it.unit}` : '');
+      txt += `${mark}${it.name}${q}\n`;
+    }
+  }
+  try {
+    if (navigator.share) await navigator.share({ title: 'Shopping list', text: txt });
+    else { await navigator.clipboard.writeText(txt); toast('List copied'); }
+  } catch (err) { /* share sheet closed */ }
+});
+
+/* ══════════════════════════════════════════════
+   EVENTS — season
+   ══════════════════════════════════════════════ */
+$('#monthRail').addEventListener('click', e => {
+  const b = e.target.closest('[data-month]');
+  if (!b) return;
+  seasonMonth = Number(b.dataset.month);
+  renderSeasonMonth();
+  renderSeasonBody();
+  centreMonth();
+});
+$('#seasonBody').addEventListener('click', e => {
+  const b = e.target.closest('[data-rec]');
+  if (b) openRecipe(b.dataset.rec);
+});
+
+/* ══════════════════════════════════════════════
+   STATUS, BACKUP AND MOVING FROM SUPABASE
+   ══════════════════════════════════════════════ */
+$('#btnSettings').addEventListener('click', () => { openSheet('#sheetSettings'); checkCloud(); });
+$('#syncBanner').addEventListener('click', () => { openSheet('#sheetSettings'); checkCloud(); });
+$('#checkCloud').addEventListener('click', checkCloud);
+$('#appInfo').textContent = `Firebase project: ${CFG.projectId || 'not set'} · Realtime Database · App version 7`;
+$('#reloadNow').addEventListener('click', () => location.reload());
+
+$('#exportJson').addEventListener('click', () => {
+  const data = { recetas, menu, extras };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `menu-at-home-${iso(new Date())}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+/* Writes a backup (or the old Supabase data) into the database in one
+   go, keeping the original ids so each dish still points at the right
+   recipe. Running it twice overwrites rather than duplicates. */
+async function restore(data) {
+  const changes = {};
+  for (const r of data.recetas || []) {
+    if (!r.id) continue;
+    changes['recetas/' + safeKey(r.id)] = {
+      nombre: r.nombre || '', emoji: r.emoji || '🍽️', raciones: Number(r.raciones) || 2,
+      notas: r.notas || '', ingredientes: Array.isArray(r.ingredientes) ? r.ingredientes : [],
+    };
+  }
+  for (const m of data.menu || []) {
+    if (!m.id || !m.receta_id || !m.dia) continue;
+    changes['menu/' + safeKey(m.id)] = {
+      dia: String(m.dia).slice(0, 10), momento: m.momento || 'comida', receta_id: safeKey(m.receta_id), raciones: Number(m.raciones) || 2,
+    };
+  }
+  for (const x of data.extras || []) {
+    if (!x.id) continue;
+    changes['extras/' + safeKey(x.id)] = {
+      nombre: x.nombre || '', cantidad: x.cantidad == null ? null : Number(x.cantidad),
+      unidad: x.unidad || '', categoria: x.categoria || 'otros', semana: x.semana || '',
+    };
+  }
+  if (Object.keys(changes).length) await track(update(ROOT(), changes));
+  return { recipes: (data.recetas || []).length, dishes: (data.menu || []).length };
+}
+
+$('#importJson').addEventListener('click', () => { if (!noDb()) $('#fileInput').click(); });
+$('#fileInput').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  const help = $('#importHelp');
+  try {
+    const data = JSON.parse(await f.text());
+    if (!(data.recetas || data.menu || data.extras)) throw new Error('that file isn’t a Menu backup');
+    help.textContent = 'Restoring…';
+    const n = await restore(data);
+    help.textContent = '';
+    closeSheet($('#sheetSettings'));
+    toast(`Restored ${plural(n.recipes, 'recipe', 'recipes')} and ${plural(n.dishes, 'dish', 'dishes')}`);
+  } catch (err) {
+    help.textContent = '';
+    failed(err, 'restore the backup');
+  }
+});
+
+/* The old project and its public key, only used by this import. */
+const OLD_SUPABASE = {
+  url: 'https://avmmenipjbqzzxwobudh.supabase.co',
+  key: 'sb_publishable_rH-6omhmmlosckGjc6yZ9g_ZKueVlnM',
+};
+
+$('#importSupabase').addEventListener('click', async () => {
+  if (noDb()) return;
+  if (!confirm('Copy recipes and the meal plan from the old Supabase database? Anything already imported is overwritten, not duplicated.')) return;
+  const help = $('#importHelp');
+  help.textContent = 'Reading the old database…';
+  try {
+    const get = async table => {
+      const r = await fetch(`${OLD_SUPABASE.url}/rest/v1/${table}?select=*`, { headers: { apikey: OLD_SUPABASE.key } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    };
+    const [rec, men, ext] = await Promise.all([get('recetas'), get('menu'), get('extras')]);
+    help.textContent = `Copying ${plural(rec.length, 'recipe', 'recipes')}…`;
+    const n = await restore({ recetas: rec, menu: men, extras: ext });
+    help.textContent = '';
+    closeSheet($('#sheetSettings'));
+    toast(`Imported ${plural(n.recipes, 'recipe', 'recipes')} and ${plural(n.dishes, 'dish', 'dishes')}`);
+  } catch (err) {
+    console.error(err);
+    help.textContent = 'Couldn’t reach the old database. If the Supabase project is paused, restore it first (pause another project if you’re at the two-project limit), then try again.';
+  }
+});
+
+/* ══════════════════════════════════════════════
+   START
+   ══════════════════════════════════════════════ */
+renderSeasonMonth();
+if (loadCache()) recetas.sort(byName);
+renderAll();
+
+if (!CONFIGURED) {
+  setDot('err', SETTINGS_BROKEN
+    ? 'The settings block at the top of index.html has a mistake. Paste only the part from “const firebaseConfig = {” to “};”, replacing the old one.'
+    : (CFG.apiKey && !CFG.databaseURL)
+      ? 'The Firebase settings in index.html are missing the databaseURL line.'
+      : 'Firebase isn’t set up yet: paste your firebaseConfig into index.html (see the README). The In season tab works without it.');
+  hideCover('Setup needed');
+} else {
+  onValue(R('.info/connected'), s => {
+    connected = s.val() === true;
+    if (connected) unreachable = false;
+    updateStatus();
+  });
+  listen('recetas', d => {
+    recetas = d.map(r => ({ ...r, ingredientes: Array.isArray(r.ingredientes) ? r.ingredientes : Object.values(r.ingredientes || {}) })).sort(byName);
+  });
+  listen('menu', d => { menu = d; });
+  listen('extras', d => { extras = d; });
+  listen('marcados', d => { marcados = d; });
+  setTimeout(() => hideCover(), 4000);      // first launch with no signal: don't wait forever
+  setTimeout(() => { if (!connected && navigator.onLine) { unreachable = true; updateStatus(); } }, 12000);
+}
+window.__appStarted = true;               // tells the start-up watchdog in index.html that all went well
+window.addEventListener('online', updateStatus);
+window.addEventListener('offline', updateStatus);
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
